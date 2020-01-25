@@ -1,5 +1,5 @@
 {
-    "name": "tp-canvas-v2",
+    "name": "uit-ita/tp-canvas-v2",
     "description": "Synchronize schedules between TP and Canvas",
     "license": "MIT",
     "autoload": {
