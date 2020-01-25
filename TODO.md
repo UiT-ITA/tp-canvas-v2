@@ -1,0 +1,3 @@
+- [ ] Use Sentry
+- [ ] Add dry-run mode
+- [ ] Add docker environments
