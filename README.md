@@ -11,7 +11,7 @@ Synchronize schedules between TP and Canvas
 
 # Install
 
-* Copy `.env.sample.list` to ´.env.test.list` and adjust values accordingly.
+* Copy `.env.sample.list` to `.env.test.list` and adjust values accordingly.
 
 # Instructions
 
