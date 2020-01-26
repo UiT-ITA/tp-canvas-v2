@@ -7,5 +7,4 @@ declare(strict_types = 1);
 
 require_once "global.php";
 
-$log->debug("Starting run");
-
+$log->info("Starting run");

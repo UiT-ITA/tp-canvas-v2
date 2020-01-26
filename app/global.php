@@ -18,10 +18,14 @@ require __DIR__ . '/vendor/autoload.php';
  */
 
 $log = new Logger('tpcanvas');
-$log->pushHandler(new ErrorLogHandler());
+if ($_SERVER['debug'] == 'on') {
+    $log->pushHandler(new ErrorLogHandler());
+} else {
+    $log->pushHandler(new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::INFO));
+}
 
 if ($_SERVER['debug'] == 'on') {
     phpinfo(); // Dump all PHP internals to stdout
     error_reporting(-1); // Enable all error reporting
-    $log->info('Debug mode');
+    $log->notice('Debug mode');
 }
