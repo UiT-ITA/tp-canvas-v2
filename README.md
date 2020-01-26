@@ -8,6 +8,7 @@ Synchronize schedules between TP and Canvas
 * Code documentation: [PSR-5](https://github.com/php-fig/fig-standards/blob/master/proposed/phpdoc.md)
 * Code documentation tags: [PSR-19](https://github.com/php-fig/fig-standards/blob/master/proposed/phpdoc-tags.md)
 * Docker image: [Official PHP](https://hub.docker.com/_/php/)
+* PHP Strict mode: [Enabled](https://www.php.net/manual/en/functions.arguments.php#functions.arguments.type-declaration.strict)
 
 # Install
 
