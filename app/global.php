@@ -11,5 +11,6 @@ declare(strict_types = 1);
 require __DIR__ . '/vendor/autoload.php';
 
 if ($_SERVER['debug'] == 'on') {
-    phpinfo();
+    phpinfo(); // Dump all PHP internals to stdout
+    error_reporting(-1); // Enable all error reporting
 }
