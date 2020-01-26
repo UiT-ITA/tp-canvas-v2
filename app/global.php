@@ -7,3 +7,7 @@
  * Include the composer autoloader - necessary to use composer packages.
  */
 require __DIR__ . '/vendor/autoload.php';
+
+if ($_SERVER['debug'] == 'on') {
+    phpinfo();
+}
