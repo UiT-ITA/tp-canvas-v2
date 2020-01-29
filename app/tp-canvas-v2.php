@@ -561,3 +561,15 @@ function check_canvas_structure_change($semester)
         }
     }
 }
+
+/**
+ * Update entire semester in Canvas
+ *
+ * @param string $semester "YY[h|v]" e.g "18v"
+ *
+ * @return void
+ */
+function full_sync(string $semester)
+{
+
+}
