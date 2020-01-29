@@ -1,5 +1,5 @@
 - [ ] Use Sentry
-- [ ] Add dry-run mode
+- [ ] Add dry-run mode !!!
 - [ ] Add multiple monolog handlers
 - [x] Guzzle retry middleware https://github.com/productsupcom/guzzle-examples/blob/master/src/Guzzle/RetryHandler.php
 - [ ] Convert inline phpdoc todo to single-line todo

@@ -11,4 +11,5 @@ COPY app/ /app
 WORKDIR /app
 
 # Run
-ENTRYPOINT [ "php", "tp-canvas-v2.php" ]
+# ENTRYPOINT [ "php", "tp-canvas-v2.php" ]
+ENTRYPOINT [ "php", "test.php" ]

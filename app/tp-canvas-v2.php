@@ -17,7 +17,7 @@ $canvasHandlerStack = GuzzleHttp\HandlerStack::create();
 $canvasHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
 /** @todo pass on debug flag to the http client */
 $canvasclient = new GuzzleHttp\Client([
-    'base_url' => "{$_SERVER['canvas_url']}api/v1/",
+    'base_uri' => "{$_SERVER['canvas_url']}api/v1/",
     'headers' => [
         'Authorization' => "Bearer {$_SERVER['canvas_key']}"
     ],
@@ -30,7 +30,7 @@ $tpHandlerStack = GuzzleHttp\HandlerStack::create();
 $tpHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
 /** @todo pass on debug flag to the http client */
 $tpclient = new GuzzleHttp\Client([
-    'base_url' => "{$_SERVER['tp_url']}ws/",
+    'base_uri' => "{$_SERVER['tp_url']}ws/",
     'headers' => [
         'X-Gravitee-Api-Key' => $_SERVER['tp_key']
     ],
@@ -43,9 +43,9 @@ function retryDecider()
 {
     return function (
         $retries,
-        Request $request,
-        Response $response = null,
-        RequestException $exception = null
+        GuzzleHttp\Psr7\Request $request,
+        GuzzleHttp\Psr7\Response $response = null,
+        GuzzleHttp\Exception\ConnectException $exception = null
     ) {
        // Limit the number of retries to 5
         if ($retries >= 5) {
@@ -522,7 +522,7 @@ function check_canvas_structure_change($semester)
     global $log, $tpclient;
 
     // Fetch all active courses from TP
-    $tp_courses = $tpclient->get("course", ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]);
+    $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
     if ($tp_courses.getStatusCode() != 200) {
         $log->critical("Could not get course list from TP", array($semester));
         return;
@@ -571,5 +571,161 @@ function check_canvas_structure_change($semester)
  */
 function full_sync(string $semester)
 {
+    global $log, $tpclient;
+
+    $log->info("Starting full sync", ['semester' => $semester]);
+
+    // Fetch all active courses from TP
+    $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
+    if ($tp_courses.getStatusCode() != 200) {
+        $log->critical("Could not get course list from TP", array($semester));
+        return;
+    }
+    $tp_courses = json_decode($tp_courses.getBody(), true);
+
+    /** @todo this was where the threading code lived */
+    foreach ($tp_courses['data'] as $tp_course) {
+        // Stupid thread argument wrapping start
+        $t_id = $tp_course['id'];
+        $t_semesterid = $semester;
+        $t_terminnr = $tp_course['terminnr'];
+        // Stupid thread argument wrapping end
+        $log->info("Updating one course", ['course' => $tp_course]);
+        update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
+        /** @todo error handling here? */
+    }
+}
+
+/**
+ * Remove one tp course from canvas
+ * Called explicitly from commandline
+ * @todo really? is it?
+ *
+ * @param string $courseid
+ * @param string $semesterid
+ * @param string $termnr
+ */
+function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, string $termnr)
+{
+    $sis_semester = make_sis_semester($semesterid, $termnr);
+
+    /** @todo verify this like condition */
+    $courses = CanvasCourse::findBySisLike("%{$courseid}\\_%\\_{$sis_semester}%");
+    foreach ($courses as $course) {
+        delete_canvas_events($course);
+    }
+    /** @todo is there some more cleanup missing here? database perhaps? */
+}
+
+/**
+ * Generate a sis course id string
+ * @todo this isn't good enough, termnr should be versionnr, but that isn't available from tp.
+ *
+ * @param string $courseid
+ * @param string $semesterid
+ * @param string $termnr
+ *
+ * @return string SIS course id in the form INF-1100_2_2017_HØST
+ */
+function make_sis_course_id(string $courseid, string $semesterid, string $termnr)
+{
+    $semesteryear = substr($semesterid, 0, 2);
+    $sis_course_id = '';
+    if (strtoupper(substr($semesterid, -1)) == "H") {
+        $sis_course_id = "{$courseid}_{$termnr}_20{$semesteryear}_HØST";
+    } else {
+        $sis_course_id = "{$courseid}_{$termnr}_20{$semesteryear}_VÅR";
+    }
+    return $sis_course_id;
+}
+
+/**
+ * Convert TP semester id and term number to Canvas SIS format
+ *
+ * @param string $semesterid e.g "18h"
+ * @param string $termnr e.g "3"
+ *
+ * @return string Canvas SIS term id
+ */
+function make_sis_semester(string $semesterid, string $termnr)
+{
+    $semesteryear = substr($semesterid, 0, 2);
+    $sis_semester = '';
+    if (strtoupper(substr($semesterid, -1)) == "H") {
+        $sis_semester = "20{$semesteryear}_HØST_{$termnr}";
+    } else {
+        $sis_semester = "20{$semesteryear}_VÅR_{$termnr}";
+    }
+    return $sis_semester;
+
+}
+
+/**
+ * Search string for substring match on any of an array of strings
+ *
+ * @param string $haystack The string to search withing
+ * @param array $needles Array of strings to search for
+ *
+ * @return bool True for match found, false for no matches
+ */
+function haystack_needles(string $haystack, array $needles)
+{
+    foreach ($needles as $needle) {
+        if (stripos($haystack, $needle) !== false) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Semnr to semstring
+ * This converts decimal numeric representation of a semester to a string.
+ *
+ * @param float $semnr Numerical representation of a semester (e.g 18.5)
+ *
+ * @return string String representation of a semester (e.g "18h")
+*/
+function semnr_to_string(float $semnr)
+{
+    if ($semnr % 1 == 0) {
+        $sem = 'v';
+    } else {
+        $sem = 'h';
+    }
+    $semyear = intval($semnr);
+    return sprintf("%02d%s", $semyear, $sem);
+}
+
+/** semstring to semnr
+ * This converts decimal numeric representation of a semester to a string
+ *
+ * @param string $semstring String representation of a semester (e.g "18h")
+ *
+ * @return float Numerical representation of a semester (e.g "18.5")
+*/
+function string_to_semnr(string $semstring) {
+    /** @todo Really need some kind of validation here - this can fail in so many ways */
+    $semarray = preg_split('/([h|v])/i', $semstring, null, 2);
+    $semyear = (float) $semarray[0];
+    if (strtolower($semarray[1]) == "h") {
+        $semyear += 0.5;
+    }
+    return $semyear;
+}
+
+/**
+ * Fetch canvas courses crom webservice, removing wrong semester and wrong courseid
+ *
+ * @param string $courseid 'INF-1100'
+ * @param string $semesterid '18v'
+ * @param string $termnr '3'
+ * @param bool $exact - Should everything that isn't a match be removed
+ */
+function fetch_and_clean_canvas_courses(string $courseid, string $semesterid, string $termnr, bool $exact = true)
+{
+    global $log, $canvasclient;
+    // Fetch Canvas courses
+    $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 100]]);
+    $responsedata = json_decode($response.getBody(), true);
 
 }
