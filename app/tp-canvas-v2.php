@@ -8,6 +8,7 @@ namespace TpCanvas;
 require_once "global.php";
 
 use PHPHtmlParser\Dom;
+use PhpAmqpLib\Connection\AMQPStreamConnection;
 
 $log->info("Starting run");
 
@@ -875,3 +876,29 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
         }
     }
 }
+
+/**
+ * Subscribe to message queue and update when courses change
+ * This is what runs as a service
+ *
+ */
+function queue_subscriber() {
+    // Connect to the RabbitMQ Server
+    $connection = new AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
+
+    // Create our channel
+    $channel = $connection->channel();
+    /** @todo $channel->prefetch(1) */
+
+    // Get exchange
+    $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
+
+    // Get our queue
+    list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true);
+    $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
+
+    // Subscribe to queue
+    $channel->basic_consume($queue_name, '', false, true, false, false, "queue_process");
+}
+
+function queue_process ($msg)

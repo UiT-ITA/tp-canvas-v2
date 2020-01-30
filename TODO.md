@@ -3,3 +3,4 @@
 - [ ] Add multiple monolog handlers
 - [x] Guzzle retry middleware https://github.com/productsupcom/guzzle-examples/blob/master/src/Guzzle/RetryHandler.php
 - [ ] Convert inline phpdoc todo to single-line todo
+- [ ] Make Canvas REST pagination https://www.w3.org/Protocols/9707-link-header.html compatible
