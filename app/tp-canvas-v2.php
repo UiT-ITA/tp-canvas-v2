@@ -3,8 +3,6 @@
  * Main application file.
  */
 
-declare(strict_types = 1);
-
 namespace TpCanvas;
 
 require_once "global.php";
@@ -720,12 +718,160 @@ function string_to_semnr(string $semstring) {
  * @param string $semesterid '18v'
  * @param string $termnr '3'
  * @param bool $exact - Should everything that isn't a match be removed
+ *
+ * @return array a list of courses that match the chosen query
+ *
+ * @todo Really needs better error handling.
  */
 function fetch_and_clean_canvas_courses(string $courseid, string $semesterid, string $termnr, bool $exact = true)
 {
     global $log, $canvasclient;
     // Fetch Canvas courses
+    /** @todo we need better error checking here */
     $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 100]]);
-    $responsedata = json_decode($response.getBody(), true);
+    $out = json_decode((string) $response->getBody(), true);
+    $nextpage = getPSR7NextPage($response);
+    // Loop through all pages
+    while ($nextpage) {
+        $response = $canvasclient->get($nextpage);
+        array_merge($out, json_decode((string) $response->getBody(), true));
+        $nextpage = getPSR7NextPage($response);
+    }
 
+    if ($exact) {
+        // Remove all with wrong semester and wrong courseid
+        $sis_semester = make_sis_semester($semesterid, $termnr);
+        /* Keep courses that fills all criterias:
+            1. Has a sis_course_id (if not, it's not from FS)
+            2. sis_course_id contains our course id as an element
+            3. sis_course_id contains our semester
+        */
+        array_filter($canvas_courses, function (array $course) use ($courseid, $sis_semester) {
+            if (!isset($course['sis_course_id'])) {
+                return false;
+            }
+            if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
+                return false;
+            }
+            if (stripos($course['sis_course_id'], $sis_semester) === false) {
+                return false;
+            }
+        });
+    } else {
+        // Create array of all valid sis semester combos for this course
+        $combos = [];
+        $semnr = string_to_semnr($semesterid):
+        $csemnr = $semnr;
+        $cterm = intval($termnr);
+        while ($cterm > 0) {
+            $combos[] = make_sis_semester(semnr_to_string($csemnr), $cterm);
+            $csemnr -= 0.5;
+            $cterm -= 1;
+        }
+
+        // Remove wrong course ids
+        array_filter($canvas_courses, function (array $course) use ($courseid) {
+            if (!isset($course['sis_course_id'])) {
+                return false;
+            }
+            if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
+                return false;
+            }
+        });
+        // Remove courses that does not matchy any of our semester combos
+        array_filter($canvas_courses, function (array $course) use ($combos) {
+            return haystack_needles($course['sis_course_id'], $combos);
+        });
+    }
+    return $canvas_courses;
+}
+
+/**
+ * Find next page of a paginated canvas response
+ *
+ * @param GuzzleHttp\Psr7\Response $response Response from Canvas API
+ *
+ * @return null|string The uri for next page, null otherwise.
+ * @todo Needs better error handling
+ */
+function getPSR7NextPage(GuzzleHttp\Psr7\Response $response)
+{
+    $linkheader= $response->getHeader('Link')[0]; // Get link header - needs error handling
+    $nextpage = array();
+    // Parse out all links
+    preg_match_all('/\<(.+)\>; rel=\"(\w+)\"/iU', $linkheader, $nextpage, PREG_SET_ORDER);
+    // Reduce to only next link
+    $nextpage = array_filter($nextpage, function (array $entry) {
+        return ($entry[2] == "next");
+    });
+    if (count($nextpage)) {
+        return reset($nextpage)[1];
+    }
+    return null;
+}
+
+/**
+ * Update one course in Canvas
+ * This is the function called for change events from rabbitmq. It is also
+ * called from check_canvas_structure() (in turn called from cronjob) and
+ * full_sync() (for every single active course in tp).
+ *
+ * @param string $courseid e.g "INF-1100"
+ * @param string $semesterid e.g "18v"
+ * @param string|int $termnr
+ *
+ * @return void
+ */
+function update_one_tp_course_in_canvas(string $courseid, string $semesterid, string|integer $termnr)
+{
+    global $log;
+
+    $timetable = $tpclient->get("1.4/", ['query' => ['id' => $courseid, 'sem' => $semesterid, 'termnr' => $termnr]]);
+    if ($timetable.getStatusCode() != 200) {
+        $log->critical("Could not get timetable from TP", array('courseid', $courseid));
+        return;
+    }
+    $timetable = json_decode($timetable.getBody(), true);
+
+    $log->debug("TP timetable", array('timetable' => $timetable));
+
+    // Fetch courses
+    $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
+    if (empty($canvas_courses)) {
+        return;
+    }
+
+    if (count($canvas_courses) == 1) { // Only one course in canvas
+        // Put everything there
+        $tdata = [];
+        if (isset($timetable['data'])) {
+            // Just merge group and plenary to a single array
+            $tdata = array_merge($timetable['data']['group'], $timetable['data']['plenary']);
+        }
+        add_timetable_to_one_canvas_course(reset($canvas_courses), $tdata, $timetable['courseid']);
+    } else { // More than one course in Canvas. There are probably variants here
+        // Find UE - several versions of a course might pose a problem here
+        $ue = array_filter($canvas_courses, function (array $course) {
+            if (stripos($course['sis_course_id'], 'UE_') === false) {
+                return false;
+            }
+            return true;
+        });
+        // Find UA
+        $ua = array_filter($canvas_courses, function (array $course) {
+            if (stripos($course['sis_course_id'], 'UA_') === false) {
+                return false;
+            }
+            return true;
+        });
+
+        $group_timetable = [];
+        if (isset($timetable['data'])) {
+            $plenary_timetable = $timetable['data']['plenary'];
+        }
+
+        if (count($ue)) {
+            add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable['courseid']);
+        }
+    }
 }
