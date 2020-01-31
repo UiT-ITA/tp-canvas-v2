@@ -38,6 +38,37 @@ $tpclient = new GuzzleHttp\Client([
     'http_errors' => false // We are not exception compliant :-/
 ]);
 
+if (!isset($argv[1])) {
+    $argv[1] = '';
+}
+
+switch ($argv[1]) {
+    case 'semester':
+        full_sync($argv[2]);
+        break;
+    case 'course':
+        full_sync($argv[2], $argv[3], $argv[4]);
+        break;
+    case 'removecourse':
+        remove_one_tp_course_from_canvas($argv[2], $argv[3], $argv[4]);
+        break;
+    case 'mq':
+        queue_subscriber();
+        break;
+    case 'canvasdiff':
+        check_canvas_structure_change($argv[2]);
+        break;
+    default:
+        echo "Command-line utility to sync timetables from TP to Canvas.\n";
+        echo "Add full semester: {$argv[0]} semester 18h\n";
+        echo "Add course: {$argv[0]} course MED-3601 18h 1\n";
+        echo "Remove course from Canvas: {$argv[0]} removecourse MED-3601 18h 1\n";
+        echo "Process changes from AMQP: {$argv[0]} mq\n";
+        echo "Check for Canvas change: {$argv[0]} canvasdiff 18h\n";
+        break;
+}
+exit;
+
 function retryDecider()
 {
     return function (
@@ -87,10 +118,12 @@ class CanvasCourse
     {
         /** @todo find or create new course */
     }
-    public static function find(string $courseid) {
+    public static function find(string $courseid)
+    {
         /** @todo find course by sis id */
     }
-    public static function findBySisLike(string $like) {
+    public static function findBySisLike(string $like)
+    {
         /** @todo find courses where sis_course_id like '$like' */
     }
     public function delete()
@@ -101,7 +134,8 @@ class CanvasCourse
     {
         /** @todo save event */
     }
-    public function remove_all_canvas_events() {
+    public function remove_all_canvas_events()
+    {
         /** @todo remove all canvas events for this course */
     }
 }
@@ -513,7 +547,7 @@ function remove_local_courses_missing_from_canvas(array $canvas_courses)
 /**
  * Check for structural changes in canvas courses.
  * Only called explicitly from command line - called in cronjob
- * 
+ *
  * @param string $semester Semester string "YY[h|v]" e.g "18v"
  */
 function check_canvas_structure_change($semester)
@@ -656,7 +690,6 @@ function make_sis_semester(string $semesterid, string $termnr)
         $sis_semester = "20{$semesteryear}_VÅR_{$termnr}";
     }
     return $sis_semester;
-
 }
 
 /**
@@ -761,7 +794,7 @@ function fetch_and_clean_canvas_courses(string $courseid, string $semesterid, st
     } else {
         // Create array of all valid sis semester combos for this course
         $combos = [];
-        $semnr = string_to_semnr($semesterid):
+        $semnr = string_to_semnr($semesterid);
         $csemnr = $semnr;
         $cterm = intval($termnr);
         while ($cterm > 0) {
@@ -819,13 +852,13 @@ function getPSR7NextPage(GuzzleHttp\Psr7\Response $response)
  *
  * @param string $courseid e.g "INF-1100"
  * @param string $semesterid e.g "18v"
- * @param string|int $termnr
+ * @param string $termnr
  *
  * @return void
  */
-function update_one_tp_course_in_canvas(string $courseid, string $semesterid, string|integer $termnr)
+function update_one_tp_course_in_canvas(string $courseid, string $semesterid, string $termnr)
 {
-    global $log;
+    global $log, $tpclient;
 
     $timetable = $tpclient->get("1.4/", ['query' => ['id' => $courseid, 'sem' => $semesterid, 'termnr' => $termnr]]);
     if ($timetable.getStatusCode() != 200) {
@@ -868,6 +901,15 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
 
         $group_timetable = [];
         if (isset($timetable['data'])) {
+            $group_timetable = $timetable['data']['group'];
+        }
+
+        if (count($ua)) {
+            add_timetable_to_canvas($ua, $group_timetable, $timetable['courseid']);
+        }
+
+        $plenary_timetable = [];
+        if (isset($timetable['data'])) {
             $plenary_timetable = $timetable['data']['plenary'];
         }
 
@@ -882,7 +924,11 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
  * This is what runs as a service
  *
  */
-function queue_subscriber() {
+function queue_subscriber()
+{
+
+    global $log;
+
     // Connect to the RabbitMQ Server
     $connection = new AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
 
@@ -899,6 +945,43 @@ function queue_subscriber() {
 
     // Subscribe to queue
     $channel->basic_consume($queue_name, '', false, true, false, false, "queue_process");
+
+    while ($channel->is_consuming()) {
+        $channel->wait();
+    }
+
+    $log->info("Normal exit, channel closed");
+    $channel->close();
+    $connection->close();
 }
 
-function queue_process ($msg)
+/**
+ * Process a received queue message
+ *
+ * @param PhpAmqlLib\Message\AMQPMessage $msg Message received.
+ * @return void
+ */
+function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
+{
+
+    global $log;
+
+    $log->info("Message received from RabbitMQ", ['message' => $msg]);
+
+    /** @todo Don't ack until processing is verified as successful */
+    $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+
+    $course = json_decode($msg->body);
+    if ((strpos($course['id'], 'BOOKING') === false ) && (strpos($course['id'], 'EKSAMEN') === false)) {
+        // Ignore BOOKING and EKSAMEN messages
+        $course_key = "{$course['id']}-{$course['terminrr']}-{$course['semesterid']}";
+        /** @todo code that looks for existing processes and kills them */
+
+        // Stupid argument wrapping for non-threaded execution
+        $t_id = $course['id'];
+        $t_semesterid = $course['semesterid'];
+        $t_terminnr = $course['terminnr'];
+        /** @todo error handling */
+        update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
+    }
+}
