@@ -20,6 +20,7 @@ $canvasclient = new GuzzleHttp\Client([
     'headers' => [
         'Authorization' => "Bearer {$_SERVER['canvas_key']}"
     ],
+    'debug' => ($_SERVER['debug'] == "on" ? true : false),
     'handler' => $canvasHandlerStack,
     /** @todo fix exception support */
     'http_errors' => false // We are not exception compliant :-/
@@ -33,6 +34,7 @@ $tpclient = new GuzzleHttp\Client([
     'headers' => [
         'X-Gravitee-Api-Key' => $_SERVER['tp_key']
     ],
+    'debug' => ($_SERVER['debug'] == "on" ? true : false),
     'handler' => $tpHandlerStack,
     /** @todo fix exception support */
     'http_errors' => false // We are not exception compliant :-/

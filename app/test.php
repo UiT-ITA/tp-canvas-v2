@@ -18,6 +18,7 @@ $canvasHandlerStack = GuzzleHttp\HandlerStack::create();
 $canvasHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
 /** @todo pass on debug flag to the http client */
 $canvasclient = new GuzzleHttp\Client([
+    'debug' => ($_SERVER['debug'] == "on" ? true : false),
     'base_uri' => "{$_SERVER['canvas_url']}api/v1/",
     'headers' => [
         'Authorization' => "Bearer {$_SERVER['canvas_key']}"
@@ -29,7 +30,7 @@ $canvasclient = new GuzzleHttp\Client([
 
 
 // Send a request to https://foo.com/root
-$response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => 'INF', 'per_page' => 10]]);
+$response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => 'INF-1110', 'per_page' => 10]]);
 //var_dump($response);
 $out = json_decode((string) $response->getBody(), true);
 $linkheader= $response->getHeader('Link')[0];
