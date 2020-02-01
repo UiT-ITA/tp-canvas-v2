@@ -191,6 +191,9 @@ class CanvasCourse
      */
     public function delete(): bool
     {
+        if ($_SERVER['dryrun'] == 'on') {
+            return true;
+        }
         $this->pdoclient->prepare("DELETE FROM canvas_courses WHERE id = ?");
         return $this->pdoclient->execute(array($this->id));
     }
@@ -202,6 +205,9 @@ class CanvasCourse
      */
     public function save(): bool
     {
+        if ($_SERVER['dryrun'] == 'on') {
+            return true;
+        }
         if ($this->id) {
             // Existing object
             $stmt = $this->pdoclient->prepare(
@@ -311,6 +317,9 @@ class CanvasEvent
      */
     public function delete(): bool
     {
+        if ($_SERVER['dryrun'] == 'on') {
+            return true;
+        }
         $this->pdoclient->prepare("DELETE FROM canvas_events WHERE id = ?");
         return $this->pdoclient->execute(array($this->id));
     }
@@ -322,6 +331,9 @@ class CanvasEvent
      */
     public function save(): bool
     {
+        if ($_SERVER['dryrun'] == 'on') {
+            return true;
+        }
         if ($this->id) {
             // Existing object
             $stmt = $this->pdoclient->prepare(
@@ -543,17 +555,23 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     );
 
     // Send to Canvas
-    $response = $canvasclient->post('calendar_events.json', [
-        'json' => [
-            'calendar_event' => [
-                'context_code' => "course_{$canvas_course_id}",
-                'title' => $title,
-                'description' => erb_description($recording, $map_url, $staff, $curr, $editurl, $description_meta),
-                'start_at' => $event['dtstart'],
-                'end_at' => $event['dtend'],
-                'location_name' => $location
-            ]
+    $contents = [
+        'calendar_event' => [
+            'context_code' => "course_{$canvas_course_id}",
+            'title' => $title,
+            'description' => erb_description($recording, $map_url, $staff, $curr, $editurl, $description_meta),
+            'start_at' => $event['dtstart'],
+            'end_at' => $event['dtend'],
+            'location_name' => $location
         ]
+    ];
+    if ($_SERVER['dryrun'] == 'on') {
+        $log->debug("Skipped calendar post", array('payload' => $contents));
+        return true;
+    }
+    
+    $response = $canvasclient->post('calendar_events.json', [
+        'json' => $contents
     ]);
 
     // Save to database if ok
@@ -635,6 +653,11 @@ function delete_canvas_event(CanvasEvent $event)
 {
     global $log, $canvasclient;
     /** @todo There was thread seppuku flag detection code here. Needs to be redone if threading is implemented. */
+
+    if ($_SERVER['dryrun'] == 'on') {
+        $log->debug("Skipped calendar delete", array('event' => $event));
+        return true;
+    }
 
     $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
     if ($response.getStatusCode() == 200) { // OK
@@ -1224,7 +1247,10 @@ function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
     /** @todo Don't ack until processing is verified as successful */
-    $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+    // Don't ack if dryrun is on
+    if ($_SERVER['dryrun'] != 'on') {
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+    }
 
     $course = json_decode($msg->body);
     if ((strpos($course['id'], 'BOOKING') === false ) && (strpos($course['id'], 'EKSAMEN') === false)) {
