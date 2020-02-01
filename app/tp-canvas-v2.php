@@ -7,8 +7,9 @@ namespace TpCanvas;
 
 require_once "global.php";
 
-use PHPHtmlParser\Dom;
+use PHPHtmlParser;
 use PhpAmqpLib\Connection\AMQPStreamConnection;
+use GuzzleHttp;
 
 $log->info("Starting run");
 
@@ -39,7 +40,7 @@ $tpclient = new GuzzleHttp\Client([
     'http_errors' => false // We are not exception compliant :-/
 ]);
 
-$pdoclient = new PDO($_SERVER['db_dsn'], $_SERVER['db_user'], $_SERVER['db_password']);
+$pdoclient = new \PDO($_SERVER['db_dsn'], $_SERVER['db_user'], $_SERVER['db_password']);
 
 if (!isset($argv[1])) {
     $argv[1] = '';
@@ -416,7 +417,7 @@ function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, stri
     }
 
     // Fetch recording, curriculum and staff from canvas_event
-    $dom = new Dom;
+    $dom = new PHPHtmlParser\Dom;
     $dom->load($canvas_event['description']);
     $meta = $dom->find('span#description-meta', 0);
     if (!$meta) {

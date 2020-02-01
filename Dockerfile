@@ -1,5 +1,8 @@
 FROM php:7.4-cli
 
+# Ensure PDO has the driver we need
+RUN docker-php-ext-install pdo_mysql
+
 # Use the default production configuration
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
@@ -12,4 +15,4 @@ WORKDIR /app
 
 # Run
 # ENTRYPOINT [ "php", "tp-canvas-v2.php" ]
-ENTRYPOINT [ "php", "test.php" ]
+ENTRYPOINT [ "php", "tp-canvas-v2.php" ]
