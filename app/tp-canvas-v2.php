@@ -28,7 +28,6 @@ $canvasclient = new GuzzleHttp\Client([
 
 $tpHandlerStack = GuzzleHttp\HandlerStack::create();
 $tpHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
-/** @todo pass on debug flag to the http client */
 $tpclient = new GuzzleHttp\Client([
     'base_uri' => "{$_SERVER['tp_url']}ws/",
     'headers' => [
@@ -372,13 +371,10 @@ class CanvasEvent
  * @param array $tp_event array from tp-ws
  * @param array $canvas_event array from canvas-ws
  * @param string $courseid Course id (e.g. INFO-1100). Required for title.
- *
  * @return bool wether the events was "equal"
  */
 function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, string $courseid): bool
 {
-    /** @todo There was thread seppuku flag detection code here. Needs to be redone if threading is implemented. */
-
     // If event is marked as deleted in canvas, pretend it's not there
     if ($canvas_event['workflow_state']=='deleted') {
         return false;
@@ -472,16 +468,12 @@ function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, stri
  * @param object $db_course The course db object to add event to
  * @param string $courseid
  * @param string $canvas_course_id
- *
- * @return void
- *
+ * @return bool Operation success flag
  * @todo Ensure result is returned properly
  */
-function add_event_to_canvas(array $event, object $db_course, string $courseid, string $canvas_course_id)
+function add_event_to_canvas(array $event, object $db_course, string $courseid, string $canvas_course_id): bool
 {
     global $log, $canvasclient;
-
-    /** @todo There was thread seppuku flag detection code here. Needs to be redone if threading is implemented. */
 
     // Mazemap location
     $location = '';
@@ -581,9 +573,11 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
         $db_event = new CanvasEvent();
         $db_event->canvas_id = $responsedata['id'];
         $db_event.save();
-        $log->info("Event created in Canvas: {$title} - canvas id: {$responsedata['id']} - internal id: xxx");
+        $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
+        return true;
     }
-    /** @todo error handling and retries */
+    $log->warn("Event creation failed in Canvas.", ['event' => $event, 'response' => $response]);
+    return false;
 }
 
 /**
@@ -595,7 +589,6 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
  * @param string $curr
  * @param string $editurl
  * @param array $description_meta
- *
  * @return string
  */
 function erb_description(
@@ -646,14 +639,12 @@ EOT;
  * Delete single canvas event (db and canvas)
  *
  * @param object event database object of event
- *
- * @return void
+ * @return bool operation success
  * @todo implement error returns
  */
-function delete_canvas_event(CanvasEvent $event)
+function delete_canvas_event(CanvasEvent $event): bool
 {
     global $log, $canvasclient;
-    /** @todo There was thread seppuku flag detection code here. Needs to be redone if threading is implemented. */
 
     if ($_SERVER['dryrun'] == 'on') {
         $log->debug("Skipped calendar delete", array('event' => $event));
@@ -676,23 +667,24 @@ function delete_canvas_event(CanvasEvent $event)
             $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
         } else {
             $log->error("Unable to delete event in Canvas", ['event'=>$event]);
+            return false;
         }
     } else {
         $log->error("Unable to delete event in Canvas", ['event'=>$event, 'error'=>$response->getStatusCode()]);
+        return false;
     }
+    return true;
 }
 
 /**
  * Delete all Canvas events for a course (db and canvas)
  *
  * @param object $course database course object
- *
  * @return void
- * @todo implement error returns
+ * @todo implement error returns - how would that look? would we care?
  */
 function delete_canvas_events(CanvasCourse $course)
 {
-    /** @todo this iterates over a magic property - needs implementation somehow */
     foreach ($course->canvas_events as $event) {
         delete_canvas_event($event);
     }
@@ -704,7 +696,6 @@ function delete_canvas_events(CanvasCourse $course)
  * @param array $courses canvas courselist from json
  * @param array $tp_activities tp timetable from json
  * @param string $courseid (e.g INF-1100)
- *
  * @return void
  */
 function add_timetable_to_canvas(object $courses, object $tp_activities, string $courseid)
@@ -730,7 +721,6 @@ function add_timetable_to_canvas(object $courses, object $tp_activities, string 
  * @param array $canvas_course from canvas json
  * @param array $timetable from tp json
  * @param string $courseid (e.g INF-1100)
- *
  * @return void
  * @todo waaay too many error conditions to return
  */
@@ -761,9 +751,8 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     }
 
     // fetch canvas events found in db
-    /** @todo uses magic property - needs implementation */
     foreach ($db_course->canvas_events as $canvas_event_db) {
-        /** @todo no error checking! */
+        /** @todo error checking! */
         $response = $canvasclient->get("calendar_events/{$canvas_event_db->canvas_id}.json");
         $canvas_event_ws = json_decode($response.getBody(), true);
         $found_matching_tp_event = false;
@@ -801,7 +790,6 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
  * Remove local courses that have been removed from Canvas
  *
  * @param array $canvas_courses
- *
  * @return void
  */
 function remove_local_courses_missing_from_canvas(array $canvas_courses)
@@ -818,7 +806,6 @@ function remove_local_courses_missing_from_canvas(array $canvas_courses)
  * Only called explicitly from command line - called in cronjob
  *
  * @param string $semester Semester string "YY[h|v]" e.g "18v"
- *
  * @return void
  */
 function check_canvas_structure_change($semester)
@@ -861,6 +848,7 @@ function check_canvas_structure_change($semester)
         if ($diff) {
             // Courses in canvas that we have no trace of locally
             /** @todo should this really have been $canvas_diff ? */
+            update_one_tp_course_in_canvas($tp_course['id'], $semester, $tp_course['terminnr']);
             $log->warning('Course changed in canvas and need to update', ['tp_course' => $tp_course, 'semester' => $semester]);
         }
     }
@@ -870,7 +858,6 @@ function check_canvas_structure_change($semester)
  * Update entire semester in Canvas
  *
  * @param string $semester "YY[h|v]" e.g "18v"
- *
  * @return void
  */
 function full_sync(string $semester)
@@ -887,7 +874,6 @@ function full_sync(string $semester)
     }
     $tp_courses = json_decode($tp_courses.getBody(), true);
 
-    /** @todo this was where the threading code lived */
     foreach ($tp_courses['data'] as $tp_course) {
         // Stupid thread argument wrapping start
         $t_id = $tp_course['id'];
@@ -901,14 +887,12 @@ function full_sync(string $semester)
 }
 
 /**
- * Remove one tp course from canvas
+ * Remove events for one tp course from canvas
  * Called explicitly from commandline
- * @todo really? is it?
  *
  * @param string $courseid
  * @param string $semesterid
  * @param string $termnr
- *
  * @return void
  */
 function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, string $termnr)
@@ -920,7 +904,6 @@ function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, 
     foreach ($courses as $course) {
         delete_canvas_events($course);
     }
-    /** @todo is there some more cleanup missing here? database perhaps? */
 }
 
 /**
@@ -930,7 +913,6 @@ function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, 
  * @param string $courseid
  * @param string $semesterid
  * @param string $termnr
- *
  * @return string SIS course id in the form INF-1100_2_2017_HØST
  */
 function make_sis_course_id(string $courseid, string $semesterid, string $termnr): string
@@ -950,7 +932,6 @@ function make_sis_course_id(string $courseid, string $semesterid, string $termnr
  *
  * @param string $semesterid e.g "18h"
  * @param string $termnr e.g "3"
- *
  * @return string Canvas SIS term id
  */
 function make_sis_semester(string $semesterid, string $termnr): string
@@ -970,7 +951,6 @@ function make_sis_semester(string $semesterid, string $termnr): string
  *
  * @param string $haystack The string to search withing
  * @param array $needles Array of strings to search for
- *
  * @return bool True for match found, false for no matches
  */
 function haystack_needles(string $haystack, array $needles): bool
@@ -987,7 +967,6 @@ function haystack_needles(string $haystack, array $needles): bool
  * This converts decimal numeric representation of a semester to a string.
  *
  * @param float $semnr Numerical representation of a semester (e.g 18.5)
- *
  * @return string String representation of a semester (e.g "18h")
 */
 function semnr_to_string(float $semnr): string
@@ -1005,7 +984,6 @@ function semnr_to_string(float $semnr): string
  * This converts decimal numeric representation of a semester to a string
  *
  * @param string $semstring String representation of a semester (e.g "18h")
- *
  * @return float Numerical representation of a semester (e.g "18.5")
 */
 function string_to_semnr(string $semstring): float
@@ -1026,7 +1004,6 @@ function string_to_semnr(string $semstring): float
  * @param string $semesterid '18v'
  * @param string $termnr '3'
  * @param bool $exact - Should everything that isn't a match be removed
- *
  * @return array a list of courses that match the chosen query
  *
  * @todo Really needs better error handling.
@@ -1102,7 +1079,6 @@ function fetch_and_clean_canvas_courses(
  * Find next page of a paginated canvas response
  *
  * @param GuzzleHttp\Psr7\Response $response Response from Canvas API
- *
  * @return string The uri for next page, empty string otherwise.
  * @todo Needs better error handling
  */
@@ -1131,7 +1107,6 @@ function getPSR7NextPage(GuzzleHttp\Psr7\Response $response): string
  * @param string $courseid e.g "INF-1100"
  * @param string $semesterid e.g "18v"
  * @param string $termnr
- *
  * @return void
  */
 function update_one_tp_course_in_canvas(string $courseid, string $semesterid, string $termnr)
@@ -1237,7 +1212,6 @@ function queue_subscriber()
  * Process a received queue message
  *
  * @param PhpAmqlLib\Message\AMQPMessage $msg Message received.
- *
  * @return void
  */
 function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
@@ -1257,7 +1231,6 @@ function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
     if ((strpos($course['id'], 'BOOKING') === false ) && (strpos($course['id'], 'EKSAMEN') === false)) {
         // Ignore BOOKING and EKSAMEN messages
         $course_key = "{$course['id']}-{$course['terminrr']}-{$course['semesterid']}";
-        /** @todo code that looks for existing processes and kills them */
 
         // Stupid argument wrapping for non-threaded execution
         $t_id = $course['id'];

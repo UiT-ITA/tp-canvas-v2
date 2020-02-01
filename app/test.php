@@ -16,7 +16,6 @@ $client = new Client([
 
 $canvasHandlerStack = GuzzleHttp\HandlerStack::create();
 $canvasHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
-/** @todo pass on debug flag to the http client */
 $canvasclient = new GuzzleHttp\Client([
     'debug' => ($_SERVER['debug'] == "on" ? true : false),
     'base_uri' => "{$_SERVER['canvas_url']}api/v1/",
