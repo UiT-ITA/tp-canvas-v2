@@ -14,7 +14,6 @@ $log->info("Starting run");
 
 $canvasHandlerStack = GuzzleHttp\HandlerStack::create();
 $canvasHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
-/** @todo pass on debug flag to the http client */
 $canvasclient = new GuzzleHttp\Client([
     'base_uri' => "{$_SERVER['canvas_url']}api/v1/",
     'headers' => [
@@ -39,6 +38,8 @@ $tpclient = new GuzzleHttp\Client([
     /** @todo fix exception support */
     'http_errors' => false // We are not exception compliant :-/
 ]);
+
+$pdoclient = new PDO($_SERVER['db_dsn'], $_SERVER['db_user'], $_SERVER['db_password']);
 
 if (!isset($argv[1])) {
     $argv[1] = '';
@@ -107,63 +108,247 @@ function retryDelay()
 
 /**
  * Activerecord emulation wrapper class
- * @todo Replace with a proper wrapper
- * @todo add properties from schema
+ *
+ * @property-read array canvas_events An array of all CanvasEvent objects belonging to this course
  */
 class CanvasCourse
 {
+    public ?int $id;
+    public ?int $canvas_id;
+    public ?string $name;
+    public ?string $course_code;
+    public ?string $sis_course_id;
+
+    private ?object $pdoclient;
+
+    /**
+     * CanvasCourse constructor
+     */
     public function __construct()
     {
+        global $pdoclient;
+        $this->pdoclient = $pdoclient;
     }
 
-    public static function find_or_create(string $courseid)
+    /**
+     * Find single course by canvas id or create a blank course object
+     *
+     * @param int $canvas_id Canvas id to search for
+     * @return CanvasCourse course object, either with values (if found) or completely blank (if not found)
+     */
+    public static function find_or_create(int $canvas_id): CanvasCourse
     {
-        /** @todo find or create new course */
+        global $pdoclient;
+        $stmt = $pdoclient->prepare("SELECT * FROM canvas_courses WHERE canvas_id = ?");
+        $stmt->execute(array($canvas_id));
+        $result = $stmt->fetchObject('CanvasCourse');
+        if ($result === false) {
+            return new CanvasCourse;
+        }
+        return $result;
     }
-    public static function find(string $courseid)
+
+    /**
+     * Find single course by sis course id
+     *
+     * @param string $sis_course_id the sis course id to search with
+     * @return CanvasCourse|null found course or null if none found
+     */
+    public static function find(string $sis_course_id): ?CanvasCourse
     {
-        /** @todo find course by sis id */
+        global $pdoclient;
+        $stmt = $pdoclient->prepare("SELECT * FROM canvas_courses WHERE sis_course_id = ?");
+        $stmt->execute(array($sis_course_id));
+        $result = $stmt->fetchObject('CanvasCourse');
+        if ($result === false) {
+            return null;
+        }
+        return $result;
     }
-    public static function findBySisLike(string $like)
+
+    /**
+     * Find all courses matching a sis_course_id wildcard search
+     *
+     * @param string $like the condition to search with, including % chars
+     * @return array Array of CanvasCourse objects
+     */
+    public static function findBySisLike(string $like): array
     {
-        /** @todo find courses where sis_course_id like '$like' */
+        global $pdoclient;
+        $stmt = $pdoclient->prepare("SELECT * FROM canvas_courses WHERE sis_course_id like ?");
+        $stmt->execute(array($like));
+        $result = array();
+        while ($course = $stmt->fetchObject('CanvasCourse')) {
+            $result[] = $course;
+        }
+        return $result;
     }
-    public function delete()
+
+    /**
+     * Delete course
+     *
+     * @return boolean Was the delete successful
+     */
+    public function delete(): bool
     {
-        /** @todo Delete event */
+        $this->pdoclient->prepare("DELETE FROM canvas_courses WHERE id = ?");
+        return $this->pdoclient->execute(array($this->id));
     }
-    public function save()
+
+    /**
+     * Save course to database
+     *
+     * @return boolean Was the save successful
+     */
+    public function save(): bool
     {
-        /** @todo save event */
+        if ($this->id) {
+            // Existing object
+            $stmt = $this->pdoclient->prepare(
+                "UPDATE canvas_courses SET
+                canvas_id = :canvasid,
+                name = :name,
+                course_code = :coursecode,
+                sis_course_id = :siscourseid
+                WHERE id = :id"
+            );
+            $values = [
+                ':canvasid' => $this->canvas_id,
+                ':name' => $this->name,
+                ':coursecode' => $this->course_code,
+                ':siscourseid' => $this->sis_course_id,
+                ':id' => $this->id
+            ];
+            return $stmt->execute($values);
+        }
+        // New object
+        $stmt = $this->pdoclient->prepare(
+            "INSERT INTO canvas_courses(
+            canvas_id, name, course_code, sis_course_id) VALUES (
+            :canvasid,
+            :name,
+            :coursecode,
+            :siscourseid)"
+        );
+        $values = [
+            ':canvasid' => $this->canvas_id,
+            ':name' => $this->name,
+            ':coursecode' => $this->course_code,
+            ':siscourseid' => $this->sis_course_id
+        ];
+        return $stmt->execute($values);
     }
+
+    /**
+     * Remove all canvas events from database that belongs to this course
+     *
+     * @return void
+     */
     public function remove_all_canvas_events()
     {
-        /** @todo remove all canvas events for this course */
+        foreach ($this->canvas_events as $event) {
+            $event->delete();
+        }
+    }
+
+    /**
+     * Magic method to read canvas_events array
+     *
+     * @param string $name property name
+     * @return mixed
+     */
+    public function __get(string $name)
+    {
+        if ($name == 'canvas_events') {
+            return CanvasEvents::findByCanvasCourseId($this->id);
+        }
+        return null;
     }
 }
 
 /**
  * Activerecord emulation wrapper class
- * @todo Replace with a proper wrapper
- * @todo add properties from schema
  */
 class CanvasEvent
 {
+    public int $id;
+    public int $canvas_course_id;
+    public int $canvas_id;
+
+    private $pdoclient;
+
+    /**
+     * CanvasEvent constructor
+     */
     public function __construct()
     {
+        global $pdoclient;
+        $this->pdoclient = $pdoclient;
     }
 
-    public static function createNew(string $canvasid, object $db_course)
+    /**
+     * Find all events linked to a given Canvas course id
+     *
+     * @param integer $canvascourseid Canvas course id to search for
+     * @return array Array of CanvasEvent objects
+     */
+    public static function findByCanvasCourseId(int $canvascourseid): array
     {
-        /** @todo Create new event record, add to chosen course */
+        global $pdoclient;
+        $stmt = $pdoclient->prepare("SELECT * FROM canvas_events WHERE canvas_course_id = ?");
+        $stmt->execute(array($like));
+        $result = array();
+        while ($event = $stmt->fetchObject('CanvasEvent')) {
+            $result[] = $event;
+        }
+        return $result;
     }
-    public function delete()
+
+    /**
+     * Delete this event from the database
+     *
+     * @return bool Did the delete complete successfully
+     */
+    public function delete(): bool
     {
-        /** @todo Delete event */
+        $this->pdoclient->prepare("DELETE FROM canvas_events WHERE id = ?");
+        return $this->pdoclient->execute(array($this->id));
     }
-    public function save()
+
+    /**
+     * Save this event to the database
+     *
+     * @return boolean Did the save complete successfully
+     */
+    public function save(): bool
     {
-        /** @todo save event */
+        if ($this->id) {
+            // Existing object
+            $stmt = $this->pdoclient->prepare(
+                "UPDATE canvas_events SET
+                canvas_course_id = :canvascourseid,
+                canvas_id = :canvasid,
+                WHERE id = :id"
+            );
+            $values = [
+                ':canvascourseid' => $this->canvas_course_id,
+                ':canvasid' => $this->canvas_id,
+                ':id' => $this->id
+            ];
+            return $stmt->execute($values);
+        }
+        // New object
+        $stmt = $this->pdoclient->prepare(
+            "INSERT INTO canvas_events(
+            canvas_course_id, canvas_id) VALUES (
+            :canvascourseid,
+            :canvasid)"
+        );
+        $values = [
+            ':canvascourseid' => $this->canvas_course_id,
+            ':canvasid' => $this->canvas_id
+        ];
+        return $stmt->execute($values);
     }
 }
 
@@ -177,7 +362,7 @@ class CanvasEvent
  *
  * @return bool wether the events was "equal"
  */
-function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, string $courseid)
+function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, string $courseid): bool
 {
     /** @todo There was thread seppuku flag detection code here. Needs to be redone if threading is implemented. */
 
@@ -363,7 +548,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
             'calendar_event' => [
                 'context_code' => "course_{$canvas_course_id}",
                 'title' => $title,
-                'description' => erb_description(),
+                'description' => erb_description($recording, $map_url, $staff, $curr, $editurl, $description_meta),
                 'start_at' => $event['dtstart'],
                 'end_at' => $event['dtend'],
                 'location_name' => $location
@@ -374,10 +559,68 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     // Save to database if ok
     if ($response.getStatusCode() == 201) {
         $responsedata = json_decode($response.getBody(), true);
-        CanvasEvent::createNew($responsedata['id'], $db_course);
+        $db_event = new CanvasEvent();
+        $db_event->canvas_id = $responsedata['id'];
+        $db_event.save();
         $log->info("Event created in Canvas: {$title} - canvas id: {$responsedata['id']} - internal id: xxx");
     }
     /** @todo error handling and retries */
+}
+
+/**
+ * Description text renderer
+ *
+ * @param boolean $recording
+ * @param string $map_url
+ * @param string $staff
+ * @param string $curr
+ * @param string $editurl
+ * @param array $description_meta
+ *
+ * @return string
+ */
+function erb_description(
+    bool $recording,
+    string $map_url,
+    string $staff,
+    string $curr,
+    string $editurl,
+    array $description_meta
+): string {
+    $timenow = strftime("%d.%m.%Y %H:%M");
+    $description_meta = json_encode($description_meta);
+    $out = '';
+    if ($recording) {
+        $out .= <<<EOT
+<strong>Automatiserte opptak</strong><br>
+<img src="https://uit.no/ressurs/canvas/film.png"><br>
+<a href="https://uit.no/om/enhet/artikkel?p_document_id=578589&p_dimension_id=88225&men=28927">Mer informasjon</a><br>
+<br>
+EOT;
+    }
+    if ($map_url) {
+        $out .= "<strong>Mazemap</strong><br>{$map_url}<br><br>\n";
+    }
+    if ($staff) {
+        $out .= "<strong>Fagpersoner</strong><br>{$staff}<br><br>\n";
+    }
+    if ($curr) {
+        $out .= "<strong>Pensum</strong><br>{$curr}<br><br>\n";
+    }
+    $out .= <<<EOT
+<a class="uit_instructoronly" href="{$editurl}">Detaljering</a><br>
+<br>
+<div style="color: #007bff;">
+    <small>**************************************************</small><br>
+    <small>Denne hendelsen er automatisk lagt til kalenderen.</small><br>
+    <small>Den må <em>ikke</em> redigeres i Canvas.</small><br>
+    <small>**************************************************</small><br>
+</div>
+<div style="color: #6c757d;">
+    <small><small>Oppdatert {$timenow}</small></small>
+</div>
+<span id="description-meta" style="display:none">{$description_meta}</span>
+EOT;
 }
 
 /**
@@ -388,7 +631,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
  * @return void
  * @todo implement error returns
  */
-function delete_canvas_event(object $event)
+function delete_canvas_event(CanvasEvent $event)
 {
     global $log, $canvasclient;
     /** @todo There was thread seppuku flag detection code here. Needs to be redone if threading is implemented. */
@@ -423,7 +666,7 @@ function delete_canvas_event(object $event)
  * @return void
  * @todo implement error returns
  */
-function delete_canvas_events(object $course)
+function delete_canvas_events(CanvasCourse $course)
 {
     /** @todo this iterates over a magic property - needs implementation somehow */
     foreach ($course->canvas_events as $event) {
@@ -471,7 +714,7 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
 {
     global $log, $canvasclient;
 
-    $db_course = CanvasCourse::find_or_create($canvas_course['id']);
+    $db_course = CanvasCourse::find_or_create((int) $canvas_course['id']);
     $db_course->name = $canvas_course['name'];
     $db_course->course_code = $canvas_course['course_code'];
     $db_course->sis_course_id = $canvas_course['sis_course_id'];
@@ -551,6 +794,8 @@ function remove_local_courses_missing_from_canvas(array $canvas_courses)
  * Only called explicitly from command line - called in cronjob
  *
  * @param string $semester Semester string "YY[h|v]" e.g "18v"
+ *
+ * @return void
  */
 function check_canvas_structure_change($semester)
 {
@@ -639,6 +884,8 @@ function full_sync(string $semester)
  * @param string $courseid
  * @param string $semesterid
  * @param string $termnr
+ *
+ * @return void
  */
 function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, string $termnr)
 {
@@ -662,7 +909,7 @@ function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, 
  *
  * @return string SIS course id in the form INF-1100_2_2017_HØST
  */
-function make_sis_course_id(string $courseid, string $semesterid, string $termnr)
+function make_sis_course_id(string $courseid, string $semesterid, string $termnr): string
 {
     $semesteryear = substr($semesterid, 0, 2);
     $sis_course_id = '';
@@ -682,7 +929,7 @@ function make_sis_course_id(string $courseid, string $semesterid, string $termnr
  *
  * @return string Canvas SIS term id
  */
-function make_sis_semester(string $semesterid, string $termnr)
+function make_sis_semester(string $semesterid, string $termnr): string
 {
     $semesteryear = substr($semesterid, 0, 2);
     $sis_semester = '';
@@ -702,7 +949,7 @@ function make_sis_semester(string $semesterid, string $termnr)
  *
  * @return bool True for match found, false for no matches
  */
-function haystack_needles(string $haystack, array $needles)
+function haystack_needles(string $haystack, array $needles): bool
 {
     foreach ($needles as $needle) {
         if (stripos($haystack, $needle) !== false) {
@@ -719,7 +966,7 @@ function haystack_needles(string $haystack, array $needles)
  *
  * @return string String representation of a semester (e.g "18h")
 */
-function semnr_to_string(float $semnr)
+function semnr_to_string(float $semnr): string
 {
     if ($semnr % 1 == 0) {
         $sem = 'v';
@@ -737,7 +984,8 @@ function semnr_to_string(float $semnr)
  *
  * @return float Numerical representation of a semester (e.g "18.5")
 */
-function string_to_semnr(string $semstring) {
+function string_to_semnr(string $semstring): float
+{
     /** @todo Really need some kind of validation here - this can fail in so many ways */
     $semarray = preg_split('/([h|v])/i', $semstring, null, 2);
     $semyear = (float) $semarray[0];
@@ -759,18 +1007,22 @@ function string_to_semnr(string $semstring) {
  *
  * @todo Really needs better error handling.
  */
-function fetch_and_clean_canvas_courses(string $courseid, string $semesterid, string $termnr, bool $exact = true)
-{
+function fetch_and_clean_canvas_courses(
+    string $courseid,
+    string $semesterid,
+    string $termnr,
+    bool $exact = true
+): array {
     global $log, $canvasclient;
     // Fetch Canvas courses
     /** @todo we need better error checking here */
     $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 100]]);
-    $out = json_decode((string) $response->getBody(), true);
+    $canvas_courses = json_decode((string) $response->getBody(), true);
     $nextpage = getPSR7NextPage($response);
     // Loop through all pages
     while ($nextpage) {
         $response = $canvasclient->get($nextpage);
-        array_merge($out, json_decode((string) $response->getBody(), true));
+        array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
         $nextpage = getPSR7NextPage($response);
     }
 
@@ -827,10 +1079,10 @@ function fetch_and_clean_canvas_courses(string $courseid, string $semesterid, st
  *
  * @param GuzzleHttp\Psr7\Response $response Response from Canvas API
  *
- * @return null|string The uri for next page, null otherwise.
+ * @return string The uri for next page, empty string otherwise.
  * @todo Needs better error handling
  */
-function getPSR7NextPage(GuzzleHttp\Psr7\Response $response)
+function getPSR7NextPage(GuzzleHttp\Psr7\Response $response): string
 {
     $linkheader= $response->getHeader('Link')[0]; // Get link header - needs error handling
     $nextpage = array();
@@ -843,7 +1095,7 @@ function getPSR7NextPage(GuzzleHttp\Psr7\Response $response)
     if (count($nextpage)) {
         return reset($nextpage)[1];
     }
-    return null;
+    return '';
 }
 
 /**
@@ -925,10 +1177,10 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
  * Subscribe to message queue and update when courses change
  * This is what runs as a service
  *
+ * @return void
  */
 function queue_subscriber()
 {
-
     global $log;
 
     // Connect to the RabbitMQ Server
@@ -961,6 +1213,7 @@ function queue_subscriber()
  * Process a received queue message
  *
  * @param PhpAmqlLib\Message\AMQPMessage $msg Message received.
+ *
  * @return void
  */
 function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
