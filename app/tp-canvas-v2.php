@@ -1028,7 +1028,7 @@ function fetch_and_clean_canvas_courses(
     // Loop through all pages
     while ($nextpage) {
         $response = $canvasclient->get($nextpage);
-        array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
+        $canvas_courses = array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
         $nextpage = getPSR7NextPage($response);
     }
 
@@ -1040,8 +1040,11 @@ function fetch_and_clean_canvas_courses(
             2. sis_course_id contains our course id as an element
             3. sis_course_id contains our semester
         */
-        array_filter($canvas_courses, function (array $course) use ($courseid, $sis_semester) {
+        $canvas_courses = array_filter($canvas_courses, function (array $course) use ($courseid, $sis_semester) {
             if (!isset($course['sis_course_id'])) {
+                return false;
+            }
+            if (is_null($course['sis_course_id'])) {
                 return false;
             }
             if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
@@ -1064,8 +1067,11 @@ function fetch_and_clean_canvas_courses(
         }
 
         // Remove wrong course ids
-        array_filter($canvas_courses, function (array $course) use ($courseid) {
+        $canvas_courses = array_filter($canvas_courses, function (array $course) use ($courseid) {
             if (!isset($course['sis_course_id'])) {
+                return false;
+            }
+            if (is_null($course['sis_course_id'])) {
                 return false;
             }
             if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
@@ -1073,7 +1079,10 @@ function fetch_and_clean_canvas_courses(
             }
         });
         // Remove courses that does not matchy any of our semester combos
-        array_filter($canvas_courses, function (array $course) use ($combos) {
+        $canvas_courses = array_filter($canvas_courses, function (array $course) use ($combos) {
+            global $log;
+            var_dump($course);
+            $log->info("checking for needles", ['course' => $course]);
             return haystack_needles($course['sis_course_id'], $combos);
         });
     }
