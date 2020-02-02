@@ -637,6 +637,7 @@ EOT;
 </div>
 <span id="description-meta" style="display:none">{$description_meta}</span>
 EOT;
+    return $out;
 }
 
 /**
