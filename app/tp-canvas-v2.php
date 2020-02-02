@@ -1022,7 +1022,7 @@ function fetch_and_clean_canvas_courses(
     global $log, $canvasclient;
     // Fetch Canvas courses
     /** @todo we need better error checking here */
-    $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 100]]);
+    $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 999]]);
     $canvas_courses = json_decode((string) $response->getBody(), true);
     $nextpage = getPSR7NextPage($response);
     // Loop through all pages
