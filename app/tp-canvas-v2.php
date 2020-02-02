@@ -210,7 +210,7 @@ class CanvasCourse
         if ($_SERVER['dryrun'] == 'on') {
             return true;
         }
-        if ($this->id) {
+        if (isset($this->id)) {
             // Existing object
             $stmt = $this->pdoclient->prepare(
                 "UPDATE canvas_courses SET
@@ -339,7 +339,7 @@ class CanvasEvent
         if ($_SERVER['dryrun'] == 'on') {
             return true;
         }
-        if ($this->id) {
+        if (isset($this->id)) {
             // Existing object
             $stmt = $this->pdoclient->prepare(
                 "UPDATE canvas_events SET
@@ -978,7 +978,7 @@ function haystack_needles(string $haystack, array $needles): bool
 */
 function semnr_to_string(float $semnr): string
 {
-    if ($semnr % 1 == 0) {
+    if ($semnr % 2 == 0) {
         $sem = 'v';
     } else {
         $sem = 'h';
@@ -1033,7 +1033,6 @@ function fetch_and_clean_canvas_courses(
         $canvas_courses = array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
         $nextpage = getPSR7NextPage($response);
     }
-
     if ($exact) {
         // Remove all with wrong semester and wrong courseid
         $sis_semester = make_sis_semester($semesterid, $termnr);
@@ -1055,6 +1054,7 @@ function fetch_and_clean_canvas_courses(
             if (stripos($course['sis_course_id'], $sis_semester) === false) {
                 return false;
             }
+            return true;
         });
     } else {
         // Create array of all valid sis semester combos for this course
@@ -1063,7 +1063,9 @@ function fetch_and_clean_canvas_courses(
         $csemnr = $semnr;
         $cterm = intval($termnr);
         while ($cterm > 0) {
-            $combos[] = make_sis_semester(semnr_to_string($csemnr), $cterm);
+            $semnrstring = semnr_to_string($csemnr);
+            $combonew = make_sis_semester($semnrstring, $cterm);
+            $combos[] = $combonew;
             $csemnr -= 0.5;
             $cterm -= 1;
         }
@@ -1079,15 +1081,15 @@ function fetch_and_clean_canvas_courses(
             if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
                 return false;
             }
+            return true;
         });
         // Remove courses that does not matchy any of our semester combos
         $canvas_courses = array_filter($canvas_courses, function (array $course) use ($combos) {
             global $log;
-            var_dump($course);
-            $log->info("checking for needles", ['course' => $course]);
             return haystack_needles($course['sis_course_id'], $combos);
         });
     }
+    $log->debug("courselist after cleanup", ['courses' => $canvas_courses]);
     return $canvas_courses;
 }
 
@@ -1141,6 +1143,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
     // Fetch courses
     $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
     if (empty($canvas_courses)) {
+        $log->info("Found no matching canvas course", ['course' => $courseid, 'semester' => $semesterid, 'termin' => $termnr]);
         return;
     }
 
