@@ -142,7 +142,7 @@ class CanvasCourse
         global $pdoclient;
         $stmt = $pdoclient->prepare("SELECT * FROM canvas_courses WHERE canvas_id = ?");
         $stmt->execute(array($canvas_id));
-        $result = $stmt->fetchObject('CanvasCourse');
+        $result = $stmt->fetchObject('TpCanvas\\CanvasCourse');
         if ($result === false) {
             return new CanvasCourse;
         }
@@ -160,7 +160,7 @@ class CanvasCourse
         global $pdoclient;
         $stmt = $pdoclient->prepare("SELECT * FROM canvas_courses WHERE sis_course_id = ?");
         $stmt->execute(array($sis_course_id));
-        $result = $stmt->fetchObject('CanvasCourse');
+        $result = $stmt->fetchObject('TpCanvas\\CanvasCourse');
         if ($result === false) {
             return null;
         }
@@ -179,7 +179,7 @@ class CanvasCourse
         $stmt = $pdoclient->prepare("SELECT * FROM canvas_courses WHERE sis_course_id like ?");
         $stmt->execute(array($like));
         $result = array();
-        while ($course = $stmt->fetchObject('CanvasCourse')) {
+        while ($course = $stmt->fetchObject('TpCanvas\\CanvasCourse')) {
             $result[] = $course;
         }
         return $result;
@@ -305,7 +305,7 @@ class CanvasEvent
         $stmt = $pdoclient->prepare("SELECT * FROM canvas_events WHERE canvas_course_id = ?");
         $stmt->execute(array($like));
         $result = array();
-        while ($event = $stmt->fetchObject('CanvasEvent')) {
+        while ($event = $stmt->fetchObject('TpCanvas\\CanvasEvent')) {
             $result[] = $event;
         }
         return $result;
