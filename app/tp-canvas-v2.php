@@ -654,17 +654,17 @@ function delete_canvas_event(CanvasEvent $event): bool
 
     $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
     if ($response->getStatusCode() == 200) { // OK
-        event->delete();
+        $event->delete();
         $log->info("Event deleted in Canvas", ['event' => $event]);
     } elseif ($response->getStatusCode() == 404) { // NOT FOUND
-        event->delete();
+        $event->delete();
         $log->warning("Event missing in Canvas", ['event'=>$event]);
     } elseif ($response->getStatusCode() == 401) { // UNAUTHORIZED
         // Is the event deleted in canvas?
         $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
         $responsedata = json_decode($response->getBody(), true);
         if ($responsedata['workflow_state'] == 'deleted') {
-            event->delete();
+            $event->delete();
             $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
         } else {
             $log->error("Unable to delete event in Canvas", ['event'=>$event]);
