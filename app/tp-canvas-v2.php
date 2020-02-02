@@ -573,7 +573,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
         $responsedata = json_decode($response->getBody(), true);
         $db_event = new CanvasEvent();
         $db_event->canvas_id = $responsedata['id'];
-        $db_event.save();
+        $db_event->save();
         $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
         return true;
     }
@@ -654,17 +654,17 @@ function delete_canvas_event(CanvasEvent $event): bool
 
     $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
     if ($response->getStatusCode() == 200) { // OK
-        event.delete();
+        event->delete();
         $log->info("Event deleted in Canvas", ['event' => $event]);
     } elseif ($response->getStatusCode() == 404) { // NOT FOUND
-        event.delete();
+        event->delete();
         $log->warning("Event missing in Canvas", ['event'=>$event]);
     } elseif ($response->getStatusCode() == 401) { // UNAUTHORIZED
         // Is the event deleted in canvas?
         $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
         $responsedata = json_decode($response->getBody(), true);
         if ($responsedata['workflow_state'] == 'deleted') {
-            event.delete();
+            event->delete();
             $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
         } else {
             $log->error("Unable to delete event in Canvas", ['event'=>$event]);
@@ -733,7 +733,7 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     $db_course->name = $canvas_course['name'];
     $db_course->course_code = $canvas_course['course_code'];
     $db_course->sis_course_id = $canvas_course['sis_course_id'];
-    $db_course.save();
+    $db_course->save();
 
     // Empty tp-timetable
     if (!$timetable) {
@@ -797,8 +797,8 @@ function remove_local_courses_missing_from_canvas(array $canvas_courses)
 {
     foreach ($canvas_courses as $course_id) {
         $local_course = CanvasCourse::find($course_id);
-        $local_course.remove_all_canvas_events();
-        $local_course.delete();
+        $local_course->remove_all_canvas_events();
+        $local_course->delete();
     }
 }
 
