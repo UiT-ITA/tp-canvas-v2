@@ -544,7 +544,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     $title .= "\u200B\u200B";
 
     $curr = ( isset($event['curr']) ? $event['curr'] : '');
-    $editurl = $event['editurl'];
+    $editurl = $event['editurl'] ?? '';
     $description_meta = array(
         'recording' => $recording,
         'staff' => $staff_arr,
