@@ -1154,7 +1154,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
         });
 
         $group_timetable = [];
-        if (isset($timetable['data'])) {
+        if (isset($timetable['data']) && isset($timetable['data']['group'])) {
             $group_timetable = $timetable['data']['group'];
         }
 
@@ -1163,7 +1163,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
         }
 
         $plenary_timetable = [];
-        if (isset($timetable['data'])) {
+        if (isset($timetable['data']) && isset($timetable['data']['plenary'])) {
             $plenary_timetable = $timetable['data']['plenary'];
         }
 
