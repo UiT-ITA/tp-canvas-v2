@@ -306,7 +306,7 @@ class CanvasEvent
     {
         global $pdoclient;
         $stmt = $pdoclient->prepare("SELECT * FROM canvas_events WHERE canvas_course_id = ?");
-        $stmt->execute(array($like));
+        $stmt->execute(array($canvascourseid));
         $result = array();
         while ($event = $stmt->fetchObject('TpCanvas\\CanvasEvent')) {
             $result[] = $event;
