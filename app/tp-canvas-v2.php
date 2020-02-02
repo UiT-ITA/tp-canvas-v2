@@ -508,7 +508,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     }
 
     // Staff string
-    $staff = "";
+    $staff = array();
     if (isset($event['staffs']) && is_array($event['staffs'])) {
         $staff = array_map(function ($staffp) {
             return "{$staffp['firstname']} {$staffp['lastname']}";
