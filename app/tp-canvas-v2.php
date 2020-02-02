@@ -63,11 +63,12 @@ switch ($argv[1]) {
         break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
-        echo "Add full semester: {$argv[0]} semester 18h\n";
-        echo "Add course: {$argv[0]} course MED-3601 18h 1\n";
-        echo "Remove course from Canvas: {$argv[0]} removecourse MED-3601 18h 1\n";
-        echo "Process changes from AMQP: {$argv[0]} mq\n";
-        echo "Check for Canvas change: {$argv[0]} canvasdiff 18h\n";
+        echo "Usage: {$argv[0]} [command] [options]\n";
+        echo "  Add full semester: semester 18h\n";
+        echo "  Add course: course MED-3601 18h 1\n";
+        echo "  Remove course from Canvas: removecourse MED-3601 18h 1\n";
+        echo "  Process changes from AMQP: mq\n";
+        echo "  Check for Canvas change: canvasdiff 18h\n";
         break;
 }
 exit;
