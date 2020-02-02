@@ -543,7 +543,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     }
     $title .= "\u200B\u200B";
 
-    $curr = ( isset($event['curr']) ? $event['curr'] : '');
+    $curr = $event['curr'] ?? '';
     $editurl = $event['editurl'] ?? '';
     $description_meta = array(
         'recording' => $recording,
@@ -703,7 +703,7 @@ function delete_canvas_events(CanvasCourse $course)
  * @param string $courseid (e.g INF-1100)
  * @return void
  */
-function add_timetable_to_canvas(object $courses, object $tp_activities, string $courseid)
+function add_timetable_to_canvas(array $courses, array $tp_activities, string $courseid)
 {
     if (!$tp_activities) {
         return;
