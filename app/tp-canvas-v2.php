@@ -145,7 +145,8 @@ class CanvasCourse
         $stmt->execute(array($canvas_id));
         $result = $stmt->fetchObject('TpCanvas\\CanvasCourse');
         if ($result === false) {
-            return new CanvasCourse;
+            $result = new CanvasCourse;
+            $result->canvas_id = $canvas_id;
         }
         return $result;
     }
@@ -282,9 +283,9 @@ class CanvasCourse
  */
 class CanvasEvent
 {
-    public int $id;
-    public int $canvas_course_id;
-    public int $canvas_id;
+    public int $id; // primary key
+    public int $canvas_course_id; // foreign key
+    public int $canvas_id; // canvas id
 
     private $pdoclient;
 
@@ -472,11 +473,11 @@ function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, stri
  * @param array $event The event definition (from tp)
  * @param object $db_course The course db object to add event to
  * @param string $courseid
- * @param string $canvas_course_id
+ * @param int $canvas_course_id
  * @return bool Operation success flag
  * @todo Ensure result is returned properly
  */
-function add_event_to_canvas(array $event, object $db_course, string $courseid, string $canvas_course_id): bool
+function add_event_to_canvas(array $event, object $db_course, string $courseid, int $canvas_course_id): bool
 {
     global $log, $canvasclient;
 
@@ -577,6 +578,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
         $responsedata = json_decode((string) $response->getBody(), true);
         $db_event = new CanvasEvent();
         $db_event->canvas_id = $responsedata['id'];
+        $db_event->canvas_course_id = $canvas_course_id;
         $db_event->save();
         $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
         return true;
