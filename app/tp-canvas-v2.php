@@ -1091,7 +1091,6 @@ function fetch_and_clean_canvas_courses(
             return haystack_needles($course['sis_course_id'], $combos);
         });
     }
-    $log->debug("courselist after cleanup", ['courses' => $canvas_courses]);
     return $canvas_courses;
 }
 
@@ -1139,6 +1138,10 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
         return;
     }
     $timetable = json_decode((string) $timetable->getBody(), true);
+    if (count($timetable) == 0) {
+        $log->warn("Course not found in TP", ['courseid' => $courseid, 'semester' => $semester, 'term' => $termnr]);
+        return;
+    }
 
 //    $log->debug("TP timetable", array('timetable' => $timetable));
 
@@ -1154,7 +1157,12 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
         $tdata = [];
         if (isset($timetable['data'])) {
             // Just merge group and plenary to a single array
-            $tdata = array_merge($timetable['data']['group'], $timetable['data']['plenary']);
+            if (isset($timetable['data']['group'])) {
+                $tdata = array_merge($tdata, $timetable['data']['group']);
+            }
+            if (isset($timetable['data']['plenary'])) {
+                $tdata = array_merge($tdata, $timetable['data']['plenary']);
+            }
         }
         add_timetable_to_one_canvas_course(reset($canvas_courses), $tdata, $timetable['courseid']);
     } else { // More than one course in Canvas. There are probably variants here
