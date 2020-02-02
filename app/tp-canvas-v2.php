@@ -50,7 +50,7 @@ switch ($argv[1]) {
         full_sync($argv[2]);
         break;
     case 'course':
-        full_sync($argv[2], $argv[3], $argv[4]);
+        update_one_tp_course_in_canvas($argv[2], $argv[3], $argv[4]);
         break;
     case 'removecourse':
         remove_one_tp_course_from_canvas($argv[2], $argv[3], $argv[4]);
