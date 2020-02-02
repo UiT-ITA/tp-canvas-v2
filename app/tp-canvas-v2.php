@@ -569,8 +569,8 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     ]);
 
     // Save to database if ok
-    if ($response.getStatusCode() == 201) {
-        $responsedata = json_decode($response.getBody(), true);
+    if ($response->getStatusCode() == 201) {
+        $responsedata = json_decode($response->getBody(), true);
         $db_event = new CanvasEvent();
         $db_event->canvas_id = $responsedata['id'];
         $db_event.save();
@@ -653,16 +653,16 @@ function delete_canvas_event(CanvasEvent $event): bool
     }
 
     $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
-    if ($response.getStatusCode() == 200) { // OK
+    if ($response->getStatusCode() == 200) { // OK
         event.delete();
         $log->info("Event deleted in Canvas", ['event' => $event]);
-    } elseif ($response.getStatusCode() == 404) { // NOT FOUND
+    } elseif ($response->getStatusCode() == 404) { // NOT FOUND
         event.delete();
         $log->warning("Event missing in Canvas", ['event'=>$event]);
     } elseif ($response->getStatusCode() == 401) { // UNAUTHORIZED
         // Is the event deleted in canvas?
         $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
-        $responsedata = json_decode($response.getBody(), true);
+        $responsedata = json_decode($response->getBody(), true);
         if ($responsedata['workflow_state'] == 'deleted') {
             event.delete();
             $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
@@ -755,7 +755,7 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     foreach ($db_course->canvas_events as $canvas_event_db) {
         /** @todo error checking! */
         $response = $canvasclient->get("calendar_events/{$canvas_event_db->canvas_id}.json");
-        $canvas_event_ws = json_decode($response.getBody(), true);
+        $canvas_event_ws = json_decode($response->getBody(), true);
         $found_matching_tp_event = false;
 
         // Look for match between canvas and tp
@@ -815,11 +815,11 @@ function check_canvas_structure_change($semester)
 
     // Fetch all active courses from TP
     $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
-    if ($tp_courses.getStatusCode() != 200) {
+    if ($tp_courses->getStatusCode() != 200) {
         $log->critical("Could not get course list from TP", array($semester));
         return;
     }
-    $tp_courses = json_decode($tp_courses.getBody(), true);
+    $tp_courses = json_decode($tp_courses->getBody(), true);
 
     // For each course in tp...
     foreach ($tp_courses['data'] as $tp_course) {
@@ -869,11 +869,11 @@ function full_sync(string $semester)
 
     // Fetch all active courses from TP
     $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
-    if ($tp_courses.getStatusCode() != 200) {
+    if ($tp_courses->getStatusCode() != 200) {
         $log->critical("Could not get course list from TP", array($semester));
         return;
     }
-    $tp_courses = json_decode($tp_courses.getBody(), true);
+    $tp_courses = json_decode($tp_courses->getBody(), true);
 
     foreach ($tp_courses['data'] as $tp_course) {
         // Stupid thread argument wrapping start
@@ -1115,11 +1115,11 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
     global $log, $tpclient;
 
     $timetable = $tpclient->get("1.4/", ['query' => ['id' => $courseid, 'sem' => $semesterid, 'termnr' => $termnr]]);
-    if ($timetable.getStatusCode() != 200) {
+    if ($timetable->getStatusCode() != 200) {
         $log->critical("Could not get timetable from TP", array('courseid', $courseid));
         return;
     }
-    $timetable = json_decode($timetable.getBody(), true);
+    $timetable = json_decode($timetable->getBody(), true);
 
     $log->debug("TP timetable", array('timetable' => $timetable));
 
