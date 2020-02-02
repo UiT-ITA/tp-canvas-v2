@@ -9,7 +9,7 @@ namespace TpCanvas;
 require_once "global.php";
 
 use PHPHtmlParser;
-use PhpAmqpLib\Connection\AMQPStreamConnection;
+use PhpAmqpLib;
 use GuzzleHttp;
 
 $log->info("Starting run");
@@ -1199,7 +1199,7 @@ function queue_subscriber()
     global $log;
 
     // Connect to the RabbitMQ Server
-    $connection = new AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
+    $connection = new PhpAmqpLib\Connection\AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
 
     // Create our channel
     $channel = $connection->channel();
@@ -1209,11 +1209,11 @@ function queue_subscriber()
     $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
 
     // Get our queue
-    list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true);
+    list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true, false, false);
     $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
 
     // Subscribe to queue
-    $channel->basic_consume($queue_name, '', false, true, false, false, "queue_process");
+    $channel->basic_consume($queue_name, '', false, true, false, false, "TpCanvas\\queue_process");
 
     while ($channel->is_consuming()) {
         $channel->wait();
@@ -1230,7 +1230,7 @@ function queue_subscriber()
  * @param PhpAmqlLib\Message\AMQPMessage $msg Message received.
  * @return void
  */
-function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
+function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 {
 
     global $log;
@@ -1243,10 +1243,10 @@ function queue_process(PhpAmqlLib\Message\AMQPMessage $msg)
         $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
     }
 
-    $course = json_decode($msg->body);
+    $course = json_decode($msg->body, true);
     if ((strpos($course['id'], 'BOOKING') === false ) && (strpos($course['id'], 'EKSAMEN') === false)) {
         // Ignore BOOKING and EKSAMEN messages
-        $course_key = "{$course['id']}-{$course['terminrr']}-{$course['semesterid']}";
+        $course_key = "{$course['id']}-{$course['terminnr']}-{$course['semesterid']}";
 
         // Stupid argument wrapping for non-threaded execution
         $t_id = $course['id'];
