@@ -1,4 +1,5 @@
-<?php
+<?php declare(strict_types=1);
+
 /**
  * Main application file.
  */
@@ -20,7 +21,7 @@ $canvasclient = new GuzzleHttp\Client([
     'headers' => [
         'Authorization' => "Bearer {$_SERVER['canvas_key']}"
     ],
-    'debug' => ($_SERVER['debug'] == "on" ? true : false),
+    'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
     'handler' => $canvasHandlerStack,
     /** @todo fix exception support */
     'http_errors' => false // We are not exception compliant :-/
@@ -33,7 +34,7 @@ $tpclient = new GuzzleHttp\Client([
     'headers' => [
         'X-Gravitee-Api-Key' => $_SERVER['tp_key']
     ],
-    'debug' => ($_SERVER['debug'] == "on" ? true : false),
+    'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
     'handler' => $tpHandlerStack,
     /** @todo fix exception support */
     'http_errors' => false // We are not exception compliant :-/
@@ -50,10 +51,10 @@ switch ($argv[1]) {
         full_sync($argv[2]);
         break;
     case 'course':
-        update_one_tp_course_in_canvas($argv[2], $argv[3], $argv[4]);
+        update_one_tp_course_in_canvas($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'removecourse':
-        remove_one_tp_course_from_canvas($argv[2], $argv[3], $argv[4]);
+        remove_one_tp_course_from_canvas($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'mq':
         queue_subscriber();
@@ -573,7 +574,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
 
     // Save to database if ok
     if ($response->getStatusCode() == 201) {
-        $responsedata = json_decode($response->getBody(), true);
+        $responsedata = json_decode((string) $response->getBody(), true);
         $db_event = new CanvasEvent();
         $db_event->canvas_id = $responsedata['id'];
         $db_event->save();
@@ -608,11 +609,12 @@ function erb_description(
     $out = '';
     if ($recording) {
         $out .= <<<EOT
-<strong>Automatiserte opptak</strong><br>
-<img src="https://uit.no/ressurs/canvas/film.png"><br>
-<a href="https://uit.no/om/enhet/artikkel?p_document_id=578589&p_dimension_id=88225&men=28927">Mer informasjon</a><br>
-<br>
-EOT;
+            <strong>Automatiserte opptak</strong><br>
+            <img src="https://uit.no/ressurs/canvas/film.png"><br>
+            <a href="https://uit.no/om/enhet/artikkel?p_document_id=578589&p_dimension_id=88225&men=28927">
+            Mer informasjon</a><br>
+            <br>
+            EOT;
     }
     if ($map_url) {
         $out .= "<strong>Mazemap</strong><br>{$map_url}<br><br>\n";
@@ -624,19 +626,19 @@ EOT;
         $out .= "<strong>Pensum</strong><br>{$curr}<br><br>\n";
     }
     $out .= <<<EOT
-<a class="uit_instructoronly" href="{$editurl}">Detaljering</a><br>
-<br>
-<div style="color: #007bff;">
-    <small>**************************************************</small><br>
-    <small>Denne hendelsen er automatisk lagt til kalenderen.</small><br>
-    <small>Den må <em>ikke</em> redigeres i Canvas.</small><br>
-    <small>**************************************************</small><br>
-</div>
-<div style="color: #6c757d;">
-    <small><small>Oppdatert {$timenow}</small></small>
-</div>
-<span id="description-meta" style="display:none">{$description_meta}</span>
-EOT;
+        <a class="uit_instructoronly" href="{$editurl}">Detaljering</a><br>
+        <br>
+        <div style="color: #007bff;">
+            <small>**************************************************</small><br>
+            <small>Denne hendelsen er automatisk lagt til kalenderen.</small><br>
+            <small>Den må <em>ikke</em> redigeres i Canvas.</small><br>
+            <small>**************************************************</small><br>
+        </div>
+        <div style="color: #6c757d;">
+            <small><small>Oppdatert {$timenow}</small></small>
+        </div>
+        <span id="description-meta" style="display:none">{$description_meta}</span>
+        EOT;
     return $out;
 }
 
@@ -666,7 +668,7 @@ function delete_canvas_event(CanvasEvent $event): bool
     } elseif ($response->getStatusCode() == 401) { // UNAUTHORIZED
         // Is the event deleted in canvas?
         $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
-        $responsedata = json_decode($response->getBody(), true);
+        $responsedata = json_decode((string) $response->getBody(), true);
         if ($responsedata['workflow_state'] == 'deleted') {
             $event->delete();
             $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
@@ -759,7 +761,7 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     foreach ($db_course->canvas_events as $canvas_event_db) {
         /** @todo error checking! */
         $response = $canvasclient->get("calendar_events/{$canvas_event_db->canvas_id}.json");
-        $canvas_event_ws = json_decode($response->getBody(), true);
+        $canvas_event_ws = json_decode((string) $response->getBody(), true);
         $found_matching_tp_event = false;
 
         // Look for match between canvas and tp
@@ -823,7 +825,7 @@ function check_canvas_structure_change($semester)
         $log->critical("Could not get course list from TP", array($semester));
         return;
     }
-    $tp_courses = json_decode($tp_courses->getBody(), true);
+    $tp_courses = json_decode((string) $tp_courses->getBody(), true);
 
     // For each course in tp...
     foreach ($tp_courses['data'] as $tp_course) {
@@ -877,7 +879,7 @@ function full_sync(string $semester)
         $log->critical("Could not get course list from TP", array($semester));
         return;
     }
-    $tp_courses = json_decode($tp_courses->getBody(), true);
+    $tp_courses = json_decode((string) $tp_courses->getBody(), true);
 
     foreach ($tp_courses['data'] as $tp_course) {
         // Stupid thread argument wrapping start
@@ -897,10 +899,10 @@ function full_sync(string $semester)
  *
  * @param string $courseid
  * @param string $semesterid
- * @param string $termnr
+ * @param int $termnr
  * @return void
  */
-function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, string $termnr)
+function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, int $termnr)
 {
     $sis_semester = make_sis_semester($semesterid, $termnr);
 
@@ -917,10 +919,10 @@ function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, 
  *
  * @param string $courseid
  * @param string $semesterid
- * @param string $termnr
+ * @param int $termnr
  * @return string SIS course id in the form INF-1100_2_2017_HØST
  */
-function make_sis_course_id(string $courseid, string $semesterid, string $termnr): string
+function make_sis_course_id(string $courseid, string $semesterid, int $termnr): string
 {
     $semesteryear = substr($semesterid, 0, 2);
     $sis_course_id = '';
@@ -936,10 +938,10 @@ function make_sis_course_id(string $courseid, string $semesterid, string $termnr
  * Convert TP semester id and term number to Canvas SIS format
  *
  * @param string $semesterid e.g "18h"
- * @param string $termnr e.g "3"
+ * @param int $termnr e.g "3"
  * @return string Canvas SIS term id
  */
-function make_sis_semester(string $semesterid, string $termnr): string
+function make_sis_semester(string $semesterid, int $termnr): string
 {
     $semesteryear = substr($semesterid, 0, 2);
     $sis_semester = '';
@@ -994,7 +996,7 @@ function semnr_to_string(float $semnr): string
 function string_to_semnr(string $semstring): float
 {
     /** @todo Really need some kind of validation here - this can fail in so many ways */
-    $semarray = preg_split('/([h|v])/i', $semstring, null, 2);
+    $semarray = preg_split('/([h|v])/i', $semstring, -1, 2);
     $semyear = (float) $semarray[0];
     if (strtolower($semarray[1]) == "h") {
         $semyear += 0.5;
@@ -1007,7 +1009,7 @@ function string_to_semnr(string $semstring): float
  *
  * @param string $courseid 'INF-1100'
  * @param string $semesterid '18v'
- * @param string $termnr '3'
+ * @param int $termnr '3'
  * @param bool $exact - Should everything that isn't a match be removed
  * @return array a list of courses that match the chosen query
  *
@@ -1016,7 +1018,7 @@ function string_to_semnr(string $semstring): float
 function fetch_and_clean_canvas_courses(
     string $courseid,
     string $semesterid,
-    string $termnr,
+    int $termnr,
     bool $exact = true
 ): array {
     global $log, $canvasclient;
@@ -1120,10 +1122,10 @@ function getPSR7NextPage(GuzzleHttp\Psr7\Response $response): string
  *
  * @param string $courseid e.g "INF-1100"
  * @param string $semesterid e.g "18v"
- * @param string $termnr
+ * @param int $termnr
  * @return void
  */
-function update_one_tp_course_in_canvas(string $courseid, string $semesterid, string $termnr)
+function update_one_tp_course_in_canvas(string $courseid, string $semesterid, int $termnr)
 {
     global $log, $tpclient;
 
@@ -1132,9 +1134,9 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, st
         $log->critical("Could not get timetable from TP", array('courseid', $courseid));
         return;
     }
-    $timetable = json_decode($timetable->getBody(), true);
+    $timetable = json_decode((string) $timetable->getBody(), true);
 
-    $log->debug("TP timetable", array('timetable' => $timetable));
+//    $log->debug("TP timetable", array('timetable' => $timetable));
 
     // Fetch courses
     $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
