@@ -267,7 +267,7 @@ class CanvasCourse
     public function __get(string $name)
     {
         if ($name == 'canvas_events') {
-            return CanvasEvents::findByCanvasCourseId($this->id);
+            return CanvasEvent::findByCanvasCourseId($this->id);
         }
         return null;
     }
