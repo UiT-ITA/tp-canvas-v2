@@ -266,8 +266,11 @@ class CanvasCourse
      */
     public function __get(string $name)
     {
-        if ($name == 'canvas_events' && isset($this->id)) {
-            return CanvasEvent::findByCanvasCourseId($this->id);
+        if ($name == 'canvas_events') {
+            if (isset($this->id)) {
+                return CanvasEvent::findByCanvasCourseId($this->id);
+            }
+            return array();
         }
         return null;
     }
@@ -540,7 +543,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
     }
     $title .= "\u200B\u200B";
 
-    $curr = $event['curr'];
+    $curr = ( isset($event['curr']) ? $event['curr'] : '');
     $editurl = $event['editurl'];
     $description_meta = array(
         'recording' => $recording,
