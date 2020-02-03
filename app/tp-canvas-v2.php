@@ -24,7 +24,7 @@ $canvasclient = new GuzzleHttp\Client([
     'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
     'handler' => $canvasHandlerStack,
     /** @todo fix exception support */
-    'http_errors' => false // We are not exception compliant :-/
+    'http_errors' => false
 ]);
 
 $tpHandlerStack = GuzzleHttp\HandlerStack::create();
@@ -37,7 +37,7 @@ $tpclient = new GuzzleHttp\Client([
     'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
     'handler' => $tpHandlerStack,
     /** @todo fix exception support */
-    'http_errors' => false // We are not exception compliant :-/
+    'http_errors' => false
 ]);
 
 $pdoclient = new \PDO($_SERVER['db_dsn'], $_SERVER['db_user'], $_SERVER['db_password']);
@@ -48,18 +48,34 @@ if (!isset($argv[1])) {
 
 switch ($argv[1]) {
     case 'semester':
+        if (!isset($arv[2])) {
+            echo "Error: Missing arguments!\n";
+            return;
+        }
         full_sync($argv[2]);
         break;
     case 'course':
+        if (!isset($arv[2], $argv[3], $argv[4])) {
+            echo "Error: Missing arguments!\n";
+            return;
+        }
         update_one_tp_course_in_canvas($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'removecourse':
+        if (!isset($arv[2], $argv[3], $argv[4])) {
+            echo "Error: Missing arguments!\n";
+            return;
+        }
         remove_one_tp_course_from_canvas($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'mq':
         queue_subscriber();
         break;
     case 'canvasdiff':
+        if (!isset($arv[2])) {
+            echo "Error: Missing arguments!\n";
+            return;
+        }
         check_canvas_structure_change($argv[2]);
         break;
     default:
