@@ -25,7 +25,7 @@ if ($_SERVER['debug'] == 'on') {
 }
 
 if ($_SERVER['debug'] == 'on') {
-    phpinfo(); // Dump all PHP internals to stdout
+    var_dump($server); // Dump environment to stdout
     error_reporting(-1); // Enable all error reporting
     $log->notice('Debug mode');
 }
