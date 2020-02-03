@@ -13,6 +13,7 @@ Synchronize schedules between TP and Canvas
 # Install
 
 * Copy `.env.sample.list` to `.env.test.list` and adjust values accordingly.
+* Run `composer install` from inside the app directory.
 
 # Instructions
 
