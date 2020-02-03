@@ -583,7 +583,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
         $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
         return true;
     }
-    $log->warn("Event creation failed in Canvas.", ['event' => $event, 'response' => $response]);
+    $log->warning("Event creation failed in Canvas.", ['event' => $event, 'response' => $response]);
     return false;
 }
 
