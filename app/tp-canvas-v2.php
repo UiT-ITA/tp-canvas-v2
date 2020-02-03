@@ -48,21 +48,21 @@ if (!isset($argv[1])) {
 
 switch ($argv[1]) {
     case 'semester':
-        if (!isset($arv[2])) {
+        if (!isset($argv[2])) {
             echo "Error: Missing arguments!\n";
             return;
         }
         full_sync($argv[2]);
         break;
     case 'course':
-        if (!isset($arv[2], $argv[3], $argv[4])) {
+        if (!isset($argv[2], $argv[3], $argv[4])) {
             echo "Error: Missing arguments!\n";
             return;
         }
         update_one_tp_course_in_canvas($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'removecourse':
-        if (!isset($arv[2], $argv[3], $argv[4])) {
+        if (!isset($argv[2], $argv[3], $argv[4])) {
             echo "Error: Missing arguments!\n";
             return;
         }
@@ -72,7 +72,7 @@ switch ($argv[1]) {
         queue_subscriber();
         break;
     case 'canvasdiff':
-        if (!isset($arv[2])) {
+        if (!isset($argv[2])) {
             echo "Error: Missing arguments!\n";
             return;
         }
