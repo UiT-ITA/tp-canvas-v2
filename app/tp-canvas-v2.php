@@ -1266,7 +1266,7 @@ function queue_subscriber()
     $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
 
     // Subscribe to queue
-    $channel->basic_consume($queue_name, '', false, true, false, false, "TpCanvas\\queue_process");
+    $channel->basic_consume($queue_name, '', false, false, false, false, "TpCanvas\\queue_process");
 
     while ($channel->is_consuming()) {
         $channel->wait();
