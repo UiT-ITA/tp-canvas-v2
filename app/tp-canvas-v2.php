@@ -1280,7 +1280,7 @@ function queue_subscriber()
 /**
  * Process a received queue message
  *
- * @param PhpAmqlLib\Message\AMQPMessage $msg Message received.
+ * @param PhpAmqpLib\Message\AMQPMessage $msg Message received.
  * @return void
  */
 function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
