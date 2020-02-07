@@ -1269,7 +1269,11 @@ function queue_subscriber()
     $channel->basic_consume($queue_name, '', false, false, false, false, "TpCanvas\\queue_process");
 
     while ($channel->is_consuming()) {
-        $channel->wait();
+        try {
+            $channel->wait();
+        } catch (PhpAmqpLib\Exception\AMQPProtocolChannelException $e) {
+            $log->error("Protocol Channel Exception", ['exception' => $e]);
+        }
     }
 
     $log->info("Normal exit, channel closed");
