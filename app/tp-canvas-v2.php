@@ -560,8 +560,8 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
         $title = "{$courseid} {$event['summary']}";
     }
     // Canvas API won't accept titles over 255 _characters_ (not bytes)
-    if (strlen($title) > 250) {
-        $title = substr($title, 0, 250);
+    if (strlen($title) > 248) {
+        $title = substr($title, 0, 248);
     }
     $title .= "\u200B\u200B";
 
