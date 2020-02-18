@@ -56,6 +56,13 @@ switch ($argv[1]) {
         }
         check_canvas_structure_change($argv[2]);
         break;
+    case 'compareenvironments':
+        if (!isset($argv[2])) {
+            echo "Error: Missing arguments!\n";
+            return;
+        }
+        compare_environments($argv[2]);
+        break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
         echo "Usage: {$argv[0]} [command] [options]\n";
@@ -64,6 +71,7 @@ switch ($argv[1]) {
         echo "  Remove course from Canvas: removecourse MED-3601 18h 1\n";
         echo "  Process changes from AMQP: mq\n";
         echo "  Check for Canvas change: canvasdiff 18h\n";
+        echo "  Compare prod and test: compareenvironments 2020-01-21T00:00:00\n";
         break;
 }
 exit;
@@ -1341,4 +1349,114 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
         /** @todo error handling */
         update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
     }
+}
+
+/**
+ * Compare production and test, outputting differences
+ * @param string $timestamp timestamp for last environment update in ISO-8601 format e.g "2020-01-21T00:00:00"
+ */
+function compare_environments(string $timestamp)
+{
+    global $log;
+
+    $canvastest = new CanvasClient('https://uit.test.instructure.com/', $_SERVER['canvas_key']);
+    $canvasprod = new CanvasClient('https://uit.instructure.com/', $_SERVER['canvas_key']);
+    $tpclient = new TPClient($_SERVER['tp_url'], $_SERVER['tp_key'], (int) $_SERVER['tp_institution']);
+    $courselist = $tpclient->lastchangedlist('2020-01-21T00:00:00');
+    
+    // For each course in our list
+    foreach ($courselist as $course) {
+        // Fetch matches from both environments, filter to courses present in both.
+        if ($course->id == "BOOKING") {
+            // Dunno why TP returns this, skip it...
+            continue;
+        }
+        try {
+            $coursest = fetchCourses($canvastest, $course->id);
+            $coursesp = fetchCourses($canvasprod, $course->id);
+        } catch (RuntimeException $e) {
+            // Abort this course. See if the next is any better.
+            $log->error("Could not fetch Canvas candidates - skipping", ['course' => $course->id, 'exception' => $e]);
+            break;
+        }
+        $courses_not = array_double_diff_key($coursest, $coursesp);
+        $courses = array_intersect_key($coursest, $coursesp);
+        if (count($courses_not)) {
+            $log->info("Courses not matching", ['courses' => $courses_not]);
+        }
+        if (empty($courses)) {
+            $log->info("No matching courses", ['course' => $course]);
+            break;
+        }
+        foreach ($courses as $course) {
+            // Fetch all calendar items
+            try {
+                $eventst = $canvastest->calendar_events(['context_codes[]' => "course_{$course->id}"]);
+                $eventsp = $canvasprod->calendar_events(['context_codes[]' => "course_{$course->id}"]);
+            } catch (RuntimeException $e) {
+                // Abort this course. See if the next is any better.
+                $log->error("Could not fetch Canvas events - skipping", [
+                    'course' => $course->sis_course_id,
+                    'exception' => $e
+                ]);
+                break;
+            }
+    
+            foreach ($eventsp as $pkey => $pevent) {
+                foreach ($eventst as $tkey => $tevent) {
+                    if (CanvasClient::eventsEqual($pevent, $tevent)) {
+                        // If equal, remove from both lists
+                        unset($eventst[$tkey]);
+                        unset($eventsp[$pkey]);
+                    }
+                }
+            }
+    
+            if (count($eventst) || count($eventsp)) {
+                $log->debug("Differences in course", [
+                    'course' => $course->sis_course_id,
+                    'test' => $eventst,
+                    'prod' => $eventsp
+                ]);
+            }
+        }
+    }
+}
+
+
+function fetchCourses(CanvasClient $canvas, string $search)
+{
+    $courses = $canvas->accounts_courses(1, [
+        'with_enrollments' => true,
+        'published' => true,
+        'completed' => false,
+        'blueprint' => false,
+        'search_term' => $search,
+        'include[]' => 'term',
+        'starts_before' => date(DATE_ISO8601),
+        'ends_after' => date(DATE_ISO8601)
+    ]);
+    $courses = array_filter($courses, function (object $course) {
+        if (empty($course->sis_course_id)) {
+            return false;
+        }
+        if (empty($course->term->sis_term_id)) {
+            return false;
+        }
+        return true;
+    });
+    // Remap with id as key, to make it easier to detect courses across prod and test
+    $coursesids = array_map(function (object $course) {
+        return $course->id;
+    }, $courses);
+    $courses = array_combine($coursesids, $courses);
+    return $courses;
+}
+
+function array_double_diff_key(array $array1, array $array2)
+{
+    return array_merge(
+        array_diff_key($array1, $array2),
+        array_diff_key($array2, $array1)
+    );
 }
