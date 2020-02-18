@@ -14,31 +14,9 @@ use GuzzleHttp;
 
 $log->info("Starting run");
 
-$canvasHandlerStack = GuzzleHttp\HandlerStack::create();
-$canvasHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
-$canvasclient = new GuzzleHttp\Client([
-    'base_uri' => "{$_SERVER['canvas_url']}api/v1/",
-    'headers' => [
-        'Authorization' => "Bearer {$_SERVER['canvas_key']}"
-    ],
-    'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
-    'handler' => $canvasHandlerStack,
-    /** @todo fix exception support */
-    'http_errors' => false
-]);
+$canvasclient = new CanvasClient($_SERVER['canvas_url'], $_SERVER['canvas_key']);
 
-$tpHandlerStack = GuzzleHttp\HandlerStack::create();
-$tpHandlerStack->push(GuzzleHttp\Middleware::retry(retryDecider(), retryDelay()));
-$tpclient = new GuzzleHttp\Client([
-    'base_uri' => "{$_SERVER['tp_url']}ws/",
-    'headers' => [
-        'X-Gravitee-Api-Key' => $_SERVER['tp_key']
-    ],
-    'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
-    'handler' => $tpHandlerStack,
-    /** @todo fix exception support */
-    'http_errors' => false
-]);
+$tpclient = new TPClient($_SERVER['tp_url'], $_SERVER['tp_key'], (int) $_SERVER['tp_institution']);
 
 $pdoclient = new \PDO($_SERVER['db_dsn'], $_SERVER['db_user'], $_SERVER['db_password']);
 
@@ -589,9 +567,16 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
         return true;
     }
     
-    $response = $canvasclient->post('calendar_events.json', [
-        'json' => $contents
-    ]);
+    try {
+        $response = $canvasclient->post('calendar_events.json', ['json' => $contents]);
+    } catch (\RuntimeException $e) {
+        $log->warning("Event creation failed in Canvas.", [
+            'event' => $event,
+            'payload' => $contents,
+            'exception' => $e
+        ]);
+        return false;
+    }
 
     // Save to database if ok
     if ($response->getStatusCode() == 201) {
@@ -603,7 +588,7 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
 //        $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
         return true;
     }
-    $log->warning("Event creation failed in Canvas.", [
+    $log->warning("Unidentified return code from Canvas", [
         'event' => $event,
         'payload' => $contents,
         'stats' => $response->getStatusCode(),
@@ -685,28 +670,47 @@ function delete_canvas_event(CanvasEvent $event): bool
         return true;
     }
 
-    $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
-    if ($response->getStatusCode() == 200) { // OK
-        $event->delete();
-        $log->info("Event deleted in Canvas", ['event' => $event]);
-    } elseif ($response->getStatusCode() == 404) { // NOT FOUND
-        $event->delete();
-        $log->warning("Event missing in Canvas", ['event'=>$event]);
-    } elseif ($response->getStatusCode() == 401) { // UNAUTHORIZED
-        // Is the event deleted in canvas?
-        $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
-        $responsedata = json_decode((string) $response->getBody(), true);
-        if ($responsedata['workflow_state'] == 'deleted') {
+    try {
+        $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
+    } catch (GuzzleHttp\Exception\ClientException $e) {
+        if ($e->getResponse()->getStatusCode() == 404) { // NOT FOUND
             $event->delete();
-            $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
+            $log->warning("Event missing in Canvas", ['event'=>$event]);
+            return true;
+        } elseif ($e->getResponse()->getStatusCode() == 401) { // UNAUTHORIZED
+            // Is the event deleted in canvas?
+            try {
+                $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
+                $responsedata = json_decode((string) $response->getBody(), true);
+            } catch (\RuntimeException $e) {
+                // Can't read from canvas, abort operation
+                $log->error("Unable to delete event in Canvas", ['event'=>$event]);
+                return false;
+            }
+            if ($responsedata['workflow_state'] == 'deleted') {
+                $event->delete();
+                $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
+                return true;
+            } else {
+                $log->error("Unable to delete event in Canvas", ['event'=>$event]);
+                return false;
+            }
         } else {
-            $log->error("Unable to delete event in Canvas", ['event'=>$event]);
+            $log->error("Unable to delete event in Canvas", [
+                'event' => $event,
+                'error' => $e->getResponse()->getStatusCode()
+            ]);
             return false;
         }
-    } else {
-        $log->error("Unable to delete event in Canvas", ['event'=>$event, 'error'=>$response->getStatusCode()]);
+    } catch (\RuntimeException $e) {
+        $log->error("Unable to delete event in Canvas", [
+            'event' => $event,
+            'error' => $e->getResponse()->getStatusCode()
+        ]);
         return false;
     }
+    $event->delete();
+    $log->info("Event deleted in Canvas", ['event' => $event]);
     return true;
 }
 
@@ -797,8 +801,14 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
 
     // fetch canvas events found in db
     foreach ($db_course->canvas_events as $canvas_event_db) {
-        /** @todo error checking! */
-        $response = $canvasclient->get("calendar_events/{$canvas_event_db->canvas_id}.json");
+        try {
+            $response = $canvasclient->get("calendar_events/{$canvas_event_db->canvas_id}.json");
+            $canvas_event_ws = json_decode((string) $response->getBody(), true);
+        } catch (\RuntimeException $e) {
+            // Could not read from Canvas, skip to next
+            $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
+            break;
+        }
         $canvas_event_ws = json_decode((string) $response->getBody(), true);
         $found_matching_tp_event = false;
 
@@ -858,9 +868,10 @@ function check_canvas_structure_change($semester)
     global $log, $tpclient;
 
     // Fetch all active courses from TP
-    $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
-    if ($tp_courses->getStatusCode() != 200) {
-        $log->critical("Could not get course list from TP", array($semester));
+    try {
+        $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
         return;
     }
     $tp_courses = json_decode((string) $tp_courses->getBody(), true);
@@ -912,10 +923,13 @@ function full_sync(string $semester)
     $log->info("Starting full sync", ['semester' => $semester]);
 
     // Fetch all active courses from TP
-    $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
-    if ($tp_courses->getStatusCode() != 200) {
-        $log->critical("Could not get course list from TP", array($semester));
+    try {
+        $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
         return;
+    }
+    if ($tp_courses->getStatusCode() != 200) {
     }
     $tp_courses = json_decode((string) $tp_courses->getBody(), true);
 
@@ -1062,14 +1076,19 @@ function fetch_and_clean_canvas_courses(
     global $log, $canvasclient;
     // Fetch Canvas courses
     /** @todo we need better error checking here */
-    $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 999]]);
-    $canvas_courses = json_decode((string) $response->getBody(), true);
-    $nextpage = getPSR7NextPage($response);
-    // Loop through all pages
-    while ($nextpage) {
-        $response = $canvasclient->get($nextpage);
-        $canvas_courses = array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
+    try {
+        $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 999]]);
+        $canvas_courses = json_decode((string) $response->getBody(), true);
         $nextpage = getPSR7NextPage($response);
+        // Loop through all pages
+        while ($nextpage) {
+            $response = $canvasclient->get($nextpage);
+            $canvas_courses = array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
+            $nextpage = getPSR7NextPage($response);
+        }
+    } catch (\RuntimeException $e) {
+        $log->error("Unable to read paginated course list", [$e]);
+        return array();
     }
     if ($exact) {
         // Remove all with wrong semester and wrong courseid
@@ -1169,9 +1188,10 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
     global $log, $tpclient;
 
     // REST call to tp, lookup course
-    $timetable = $tpclient->get("1.4/", ['query' => ['id' => $courseid, 'sem' => $semesterid, 'termnr' => $termnr]]);
-    if ($timetable->getStatusCode() != 200) {
-        $log->critical("Could not get timetable from TP", array('courseid', $courseid));
+    try {
+        $timetable = $tpclient->get("1.4/", ['query' => ['id' => $courseid, 'sem' => $semesterid, 'termnr' => $termnr]]);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
         return;
     }
 
