@@ -1040,17 +1040,20 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
     }
 
     $course = json_decode($msg->body, true);
-    if ((strpos($course['id'], 'BOOKING') === false ) && (strpos($course['id'], 'EKSAMEN') === false)) {
-        // Ignore BOOKING and EKSAMEN messages
-        $course_key = "{$course['id']}-{$course['terminnr']}-{$course['semesterid']}";
 
-        // Stupid argument wrapping for non-threaded execution
-        $t_id = $course['id'];
-        $t_semesterid = $course['semesterid'];
-        $t_terminnr = $course['terminnr'];
-        /** @todo error handling */
-        update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
+    if (strpos($course['id'], 'BOOKING') !== false || strpos($course['id'], 'EKSAMEN') !== false) {
+        // Ignore BOOKING and EKSAMEN messages
+        return;
     }
+
+    $course_key = "{$course['id']}-{$course['terminnr']}-{$course['semesterid']}";
+
+    // Stupid argument wrapping for non-threaded execution
+    $t_id = $course['id'];
+    $t_semesterid = $course['semesterid'];
+    $t_terminnr = $course['terminnr'];
+    /** @todo error handling */
+    update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
 }
 
 /**
@@ -1081,7 +1084,11 @@ function compare_environments(string $timestamp)
             $log->error("Could not fetch Canvas candidates - skipping", ['course' => $course->id, 'exception' => $e]);
             break;
         }
-        $courses_not = array_double_diff_key($coursest, $coursesp);
+        $courses_not = array_merge(
+            array_diff_key($coursest, $coursesp),
+            array_diff_key($coursesp, $coursest)
+        );
+
         $courses = array_intersect_key($coursest, $coursesp);
         if (count($courses_not)) {
             $log->info("Courses not matching", ['courses' => $courses_not]);
@@ -1153,12 +1160,4 @@ function fetchCourses(CanvasClient $canvas, string $search)
     }, $courses);
     $courses = array_combine($coursesids, $courses);
     return $courses;
-}
-
-function array_double_diff_key(array $array1, array $array2)
-{
-    return array_merge(
-        array_diff_key($array1, $array2),
-        array_diff_key($array2, $array1)
-    );
 }

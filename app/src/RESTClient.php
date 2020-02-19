@@ -141,6 +141,4 @@ class RESTClient extends GuzzleHTTP\Client
         }
         return '';
     }
-
 }
-
