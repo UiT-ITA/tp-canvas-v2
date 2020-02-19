@@ -34,14 +34,21 @@ class TPClient extends RESTClient
 
     /**
      * List courses
-     * @param string semester e.g. "20v"
+     * @param string $semester semester e.g. "20v"
+     * @param int|null $times ???
      * @return array courses
      */
-    public function courses(string $semester)
+    public function courses(string $semester, ?int $times = null): array
     {
-        $response = $this->get("course/", ['query' => ['id' => $this->institution, 'sem' => $semester]]);
+        $query = ['id' => $this->institution, 'sem' => $semester];
+        if (!is_null($times)) {
+            $query['times'] = $times;
+        }
+        $response = $this->get("course/", ['query' => $query]);
         return (self::responseToNative($response));
     }
+
+
 
     /**
      * List courses changed since
@@ -49,7 +56,7 @@ class TPClient extends RESTClient
      * @param string type
      * @return array courses
      */
-    public function lastchangedlist(string $timestamp, string $type = 'course')
+    public function lastchangedlist(string $timestamp, string $type = 'course'): array
     {
         $response = $this->get("1.4/lastchanged-list.php", ['query' => ['timestamp' => $timestamp, 'type' => $type]]);
         $response = (self::responseToNative($response));

@@ -579,24 +579,23 @@ function check_canvas_structure_change($semester)
 
     // Fetch all active courses from TP
     try {
-        $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
+        $tp_courses = $tpclient->courses($semester, 1);
     } catch (\RuntimeException $e) {
         $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
         return;
     }
-    $tp_courses = json_decode((string) $tp_courses->getBody(), true);
 
     // For each course in tp...
-    foreach ($tp_courses['data'] as $tp_course) {
+    foreach ($tp_courses->data as $tp_course) {
         // Create Canvas SIS string
-        $sis_semester = make_sis_semester($semester, $tp_course['terminnr']);
+        $sis_semester = make_sis_semester($semester, $tp_course->terminnr);
         // Fetch course candidates from Canvas
-        $canvas_courses = fetch_and_clean_canvas_courses($tp_course['id'], $semester, $tp_course['terminnr'], false);
+        $canvas_courses = fetch_and_clean_canvas_courses($tp_course->id, $semester, $tp_course->terminnr, false);
         $canvas_courses_ids = array_column($canvas_courses, 'sis_course_id');
 
         // ? Seems to collect sis_course_id for all courses that we have touched that matches
         /** @todo verify this like syntax */
-        $local_courses = CanvasDbCourse::findBySisLike("%{$tp_course['id']}\\_%\\_{$sis_semester}%");
+        $local_courses = CanvasDbCourse::findBySisLike("%{$tp_course->id}\\_%\\_{$sis_semester}%");
         $local_courses = array_column($local_courses, 'sis_course_id');
 
         // Gather id's that only exist in one of the arrays?
@@ -614,7 +613,7 @@ function check_canvas_structure_change($semester)
         if ($diff) {
             // Courses in canvas that we have no trace of locally
             /** @todo should this really have been $canvas_diff ? */
-            update_one_tp_course_in_canvas($tp_course['id'], $semester, $tp_course['terminnr']);
+            update_one_tp_course_in_canvas($tp_course->id, $semester, $tp_course->terminnr);
             $log->warning('Course changed in canvas and need to update', ['tp_course' => $tp_course, 'semester' => $semester]);
         }
     }
@@ -634,23 +633,16 @@ function full_sync(string $semester)
 
     // Fetch all active courses from TP
     try {
-        $tp_courses = $tpclient->get("course", ['query' => ['id' => $_SERVER['tp_institution'], 'sem' => $semester, 'times' => 1]]);
+        $tpclient->courses($semester, 1);
     } catch (\RuntimeException $e) {
         $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
         return;
     }
-    if ($tp_courses->getStatusCode() != 200) {
-    }
-    $tp_courses = json_decode((string) $tp_courses->getBody(), true);
 
-    foreach ($tp_courses['data'] as $tp_course) {
-        // Stupid thread argument wrapping start
-        $t_id = $tp_course['id'];
-        $t_semesterid = $semester;
-        $t_terminnr = $tp_course['terminnr'];
+    foreach ($tp_courses->data as $tp_course) {
         // Stupid thread argument wrapping end
         $log->info("Updating one course", ['course' => $tp_course]);
-        update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
+        update_one_tp_course_in_canvas($tp_course->id, $semester, $tp_course->terminnr);
         /** @todo error handling here? */
     }
 }
