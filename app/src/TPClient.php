@@ -48,7 +48,26 @@ class TPClient extends RESTClient
         return (self::responseToNative($response));
     }
 
-
+    /**
+     * Get schedule for course
+     * @param string $semester semester e.g "20v"
+     * @param string $course course id e.g. "IDF-1000"
+     * @param int|null $term term number
+     * @param string|null $language "no" or "en"
+     * @return object timetabledata
+     */
+    public function schedule(string $semester, string $course, ?int $termnr = null, ?string $language = null): object
+    {
+        $query = ['id' => $this->institution, 'sem' => $semester, 'id' => $course];
+        if (!is_null($termnr)) {
+            $query['termnr'] = $termnr;
+        }
+        if (!is_null($language)) {
+            $query['lang'] = $language;
+        }
+        $response = $this->get("1.4/", ['query' => $query]);
+        return (self::responseToNative($response));
+    }
 
     /**
      * List courses changed since
@@ -56,7 +75,7 @@ class TPClient extends RESTClient
      * @param string type
      * @return array courses
      */
-    public function lastchangedlist(string $timestamp, string $type = 'course'): array
+    public function lastchangedlist(string $timestamp, ?string $type = 'course'): array
     {
         $response = $this->get("1.4/lastchanged-list.php", ['query' => ['timestamp' => $timestamp, 'type' => $type]]);
         $response = (self::responseToNative($response));
