@@ -1006,16 +1006,9 @@ function queue_subscriber()
  */
 function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 {
-
     global $log;
 
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
-
-    /** @todo Don't ack until processing is verified as successful */
-    // Don't ack if dryrun is on
-    if ($_SERVER['dryrun'] != 'on') {
-        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
-    }
 
     $course = json_decode($msg->body, true);
 
@@ -1033,6 +1026,12 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
     $t_terminnr = $course['terminnr'];
     /** @todo error handling */
     update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
+
+    /** @todo Don't ack until processing is verified as successful */
+    // Don't ack if dryrun is on
+    if ($_SERVER['dryrun'] != 'on') {
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+    }
 }
 
 /**
