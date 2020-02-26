@@ -50,8 +50,8 @@ class CanvasDbEvent
         if ($_SERVER['dryrun'] == 'on') {
             return true;
         }
-        $this->pdoclient->prepare("DELETE FROM canvas_events WHERE id = ?");
-        return $this->pdoclient->execute(array($this->id));
+        $stmt = $this->pdoclient->prepare("DELETE FROM canvas_events WHERE id = ?");
+        return $stmt->execute(array($this->id));
     }
 
     /**
