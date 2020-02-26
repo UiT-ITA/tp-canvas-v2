@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 /**
  * Canvas Client
  * This is a low level Canvas client. It aims a 1:1 implementation of the Canvas
