@@ -36,9 +36,9 @@ class TPClient extends RESTClient
      * List courses
      * @param string $semester semester e.g. "20v"
      * @param int|null $times ???
-     * @return array courses
+     * @return object courselist
      */
-    public function courses(string $semester, ?int $times = null): array
+    public function courses(string $semester, ?int $times = null): object
     {
         $query = ['id' => $this->institution, 'sem' => $semester];
         if (!is_null($times)) {

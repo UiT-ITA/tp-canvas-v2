@@ -92,33 +92,37 @@ function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, stri
 
     // title
     $title = "";
-    if (isset($tp_event['title']) && $tp_event['title']) {
-        $title = "{$courseid} ({$tp_event['title']}) {$tp_event['summary']}";
+    if (isset($tp_event->title) && $tp_event->title) {
+        $title = "{$courseid} ({$tp_event->title}) {$tp_event->summary}";
     } else {
-        $title = "{$courseid} {$tp_event['summary']}";
+        $title = "{$courseid} {$tp_event->summary}";
     }
-    $title .= "\u200B\u200B";
-    if ($title != $canvas_event['title']) {
+    // Canvas API won't accept titles over 255 _characters_ (not bytes)
+    if (mb_strlen($title) > 253) {
+        $title = mb_substr($title, 0, 253);
+    }
+    $title .= "\u{200B}\u{200B}";
+    if ($title != $canvas_event->title) {
         return false;
     }
 
     // location
     $location = '';
-    if (isset($tp_event['room']) && $tp_event['room']) {
+    if (isset($tp_event->room) && $tp_event->room) {
         $location = array_map(function ($room) {
-            return "{$room['buildingid']} {$room['roomid']}";
-        }, $tp_event['room']);
+            return "{$room->buildingid} {$room->roomid}";
+        }, $tp_event->room);
         $location = implode(', ', $location);
     }
-    if ($location != $canvas_event['location_name']) {
+    if ($location != $canvas_event->location_name) {
         return false;
     }
 
     // dates
-    if (strtotime($tp_event['dtstart']) != strtotime($canvas_event['start_at'])) {
+    if (strtotime($tp_event->dtstart) != strtotime($canvas_event->start_at)) {
         return false;
     }
-    if (strtotime($tp_event['dtend']) != strtotime($canvas_event['end_at'])) {
+    if (strtotime($tp_event->dtend) != strtotime($canvas_event->end_at)) {
         return false;
     }
 
@@ -129,42 +133,42 @@ function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, stri
     if (!$meta) {
         return false; // Missing meta? Pretend we're missing event.
     }
-    $meta = json_decode($meta->text(true), true);
+    $meta = json_decode($meta->text(true));
 
     // Staff array
     $staff_arr = array();
-    if (isset($tp_event['staffs']) && is_array($tp_event['staffs'])) {
+    if (isset($tp_event->staffs) && is_array($tp_event->staffs)) {
         $staff_arr = array_map(function ($staff) {
-            return "{$staff['firstname']} {$staff['lastname']}";
-        }, $tp_event['staffs']);
+            return "{$staff->firstname} {$staff->lastname}";
+        }, $tp_event->staffs);
     }
-    if (isset($tp_event['xstaff-list']) && is_array($tp_event['xstaff-list'])) {
+    if (isset($tp_event->{'xstaff-list'}) && is_array($tp_event->{'xstaff-list'})) {
         $staff_arr = array_merge($staff_arr, array_map(function ($staff) {
-            return "{$staff['name']} (ekstern) {$staff['url']}";
-        }, $tp_event['xstaff-list']));
+            return "{$staff->name} (ekstern) {$staff->url}";
+        }, $tp_event->{'xstaff-list'}));
     }
     sort($staff_arr);
-    sort($meta['staff']);
-    if ($staff_arr != $meta["staff"]) {
+    sort($meta->staff);
+    if ($staff_arr != $meta->staff) {
         return false;
     }
 
     // Recording tag
     /** @todo check if this logic checks out */
     $recording = false;
-    if (isset($tp_event['tags']) && is_array($tp_event['tags'])) {
-        $tags = preg_grep('/Mediasite/', $tp_event['tags']);
+    if (isset($tp_event->tags) && is_array($tp_event->tags)) {
+        $tags = preg_grep('/Mediasite/', $tp_event->tags);
         if (count($tags) > 0) {
             $recording = true;
         }
     }
-    if ($recording != $meta['recording']) {
+    if ($recording != $meta->recording) {
         return false;
     }
 
     // Curriculum
     /** @todo check string format here */
-    if (md5($tp_event['curr']) != $meta['curr']) {
+    if (md5($tp_event->curr) != $meta->curr) {
         return false;
     }
 
@@ -174,27 +178,27 @@ function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, stri
 /**
  * Create event in Canvas and database
  *
- * @param array $event The event definition (from tp)
+ * @param object $event The event definition (from tp)
  * @param object $db_course The course db object to add event to
  * @param string $courseid
  * @param int $canvas_course_id
  * @return bool Operation success flag
  * @todo Ensure result is returned properly
  */
-function add_event_to_canvas(array $event, object $db_course, string $courseid, int $canvas_course_id): bool
+function add_event_to_canvas(object $event, object $db_course, string $courseid, int $canvas_course_id): bool
 {
     global $log, $canvasclient;
 
     // Mazemap location
     $location = '';
     $map_url = '';
-    if (isset($event['room']) && is_array($event['room'])) {
+    if (isset($event->room) && is_array($event->room)) {
         $location = array_map(function ($room) {
-            return "{$room['buildingid']} {$room['roomid']}";
-        }, $event['room']);
+            return "{$room->buildingid} {$room->roomid}";
+        }, $event->room);
         $location = implode(', ', $location);
-        foreach ($event['room'] as $room) {
-            $room_name="{$room['buildingid']} {$room['roomid']}";
+        foreach ($event->room as $room) {
+            $room_name="{$room->buildingid} {$room->roomid}";
             $room_url="https://uit.no/mazemaproom?room_name=".urlencode($room_name)."&zoom=20";
             $map_url .= "<a href={$room_url}> {$room_name}</a><br>";
         }
@@ -202,39 +206,39 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
 
     // Staff array
     $staff_arr = array();
-    if (isset($event['staffs']) && is_array($event['staffs'])) {
+    if (isset($event->staffs) && is_array($event->staffs)) {
         $staff_arr = array_map(function ($staff) {
-            return "{$staff['firstname']} {$staff['lastname']}";
-        }, $event['staffs']);
+            return "{$staff->firstname} {$staff->lastname}";
+        }, $event->staffs);
     }
-    if (isset($event['xstaff-list']) && is_array($event['xstaff-list'])) {
+    if (isset($event->{'xstaff-list'}) && is_array($event->{'xstaff-list'})) {
         $staff_arr = array_merge($staff_arr, array_map(function ($staff) {
-            return "{$staff['name']} (ekstern) {$staff['url']}";
-        }, $event['xstaff-list']));
+            return "{$staff->name} (ekstern) {$staff->url}";
+        }, $event->{'xstaff-list'}));
     }
 
     // Staff string
     $staff = array();
-    if (isset($event['staffs']) && is_array($event['staffs'])) {
+    if (isset($event->staffs) && is_array($event->staffs)) {
         $staff = array_map(function ($staffp) {
-            return "{$staffp['firstname']} {$staffp['lastname']}";
-        }, $event['staffs']);
+            return "{$staffp->firstname} {$staffp->lastname}";
+        }, $event->staffs);
     }
-    if (isset($event['xstaff-list']) && is_array($event['xstaff-list'])) {
+    if (isset($event->{'xstaff-list'}) && is_array($event->{'xstaff-list'})) {
         $staff = array_merge($staff_arr, array_map(function ($staffp) {
-            if ($staffp['url'] != '') {
-                return "<a href='{$staffp['url']}'>{$staffp['name']} (ekstern)</a>";
+            if ($staffp->url != '') {
+                return "<a href='{$staffp->url}'>{$staffp->name} (ekstern)</a>";
             }
-            return "{$staffp['name']} (ekstern) {$staffp['url']}";
-        }, $event['xstaff-list']));
+            return "{$staffp->name} (ekstern) {$staffp->url}";
+        }, $event->{'xstaff-list'}));
     }
     $staff = implode("<br>", $staff);
 
     // Recording tag
-    /** @todo check if this logic checks out */
     $recording = false;
-    if (isset($event['tags']) && is_array($event['tags'])) {
-        $tags = preg_grep('/Mediasite/', $event['tags']);
+    if (isset($event->tags) && is_array($event->tags)) {
+        // Apparently any tag containing the word "Mediasite" means recording
+        $tags = preg_grep('/Mediasite/', $event->tags);
         if (count($tags) > 0) {
             $recording = true;
         }
@@ -242,69 +246,56 @@ function add_event_to_canvas(array $event, object $db_course, string $courseid, 
 
     // Title
     $title = '';
-    if (isset($event['title']) && $event['title']) {
-        $title = "{$courseid} ({$event['title']}) {$event['summary']}";
+    if (isset($event->title) && $event->title) {
+        $title = "{$courseid} ({$event->title}) {$event->summary}";
     } else {
-        $title = "{$courseid} {$event['summary']}";
+        $title = "{$courseid} {$event->summary}";
     }
     // Canvas API won't accept titles over 255 _characters_ (not bytes)
-    if (strlen($title) > 248) {
-        $title = substr($title, 0, 248);
+    if (mb_strlen($title) > 253) {
+        $title = mb_substr($title, 0, 253);
     }
-    $title .= "\u200B\u200B";
+    $title .= "\u{200B}\u{200B}";
 
-    $curr = $event['curr'] ?? '';
-    $editurl = $event['editurl'] ?? '';
-    $description_meta = array(
-        'recording' => $recording,
-        'staff' => $staff_arr,
-        'curr' => md5($curr)
-    );
+    $curr = $event->curr ?? '';
+    $editurl = $event->editurl ?? '';
+    $description_meta = new \stdClass();
+    $description_meta->recording = $recording;
+    $description_meta->staff = $staff_arr;
+    $description_meta->curr = md5($curr);
 
     // Send to Canvas
-    $contents = [
-        'calendar_event' => [
-            'context_code' => "course_{$canvas_course_id}",
-            'title' => $title,
-            'description' => erb_description($recording, $map_url, $staff, $curr, $editurl, $description_meta),
-            'start_at' => $event['dtstart'],
-            'end_at' => $event['dtend'],
-            'location_name' => $location
-        ]
-    ];
+    $cevent = new \stdClass();
+    $cevent->context_code = "course_{$canvas_course_id}";
+    $cevent->title = $title;
+    $cevent->description = erb_description($recording, $map_url, $staff, $curr, $editurl, $description_meta);
+    $cevent->start_at = $event->dtstart;
+    $cevent->end_at = $event->dtend;
+    $cevent->location_name = $location;
     if ($_SERVER['dryrun'] == 'on') {
-        $log->debug("Skipped calendar post", array('payload' => $contents));
+        $log->debug("Skipped calendar post", array('payload' => $cevent));
         return true;
     }
     
     try {
-        $response = $canvasclient->post('calendar_events.json', ['json' => $contents]);
+        $response = $canvasclient->calendar_events_post($cevent);
     } catch (\RuntimeException $e) {
         $log->warning("Event creation failed in Canvas.", [
             'event' => $event,
-            'payload' => $contents,
+            'payload' => $cevent,
             'exception' => $e
         ]);
         return false;
     }
 
+    /** @todo There used to be a test here for 201  */
     // Save to database if ok
-    if ($response->getStatusCode() == 201) {
-        $responsedata = json_decode((string) $response->getBody(), true);
         $db_event = new CanvasDbEvent();
-        $db_event->canvas_id = $responsedata['id'];
+        $db_event->canvas_id = $response->id;
         $db_event->canvas_course_id = $canvas_course_id;
         $db_event->save();
 //        $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
         return true;
-    }
-    $log->warning("Unidentified return code from Canvas", [
-        'event' => $event,
-        'payload' => $contents,
-        'stats' => $response->getStatusCode(),
-        'response' => (string) $response->getBody()
-    ]);
-    return false;
 }
 
 /**
@@ -324,7 +315,7 @@ function erb_description(
     string $staff,
     string $curr,
     string $editurl,
-    array $description_meta
+    object $description_meta
 ): string {
     $timenow = strftime("%d.%m.%Y %H:%M");
     $description_meta = json_encode($description_meta);
@@ -381,28 +372,30 @@ function delete_canvas_event(CanvasDbEvent $event): bool
     }
 
     try {
-        $response = $canvasclient->delete("calendar_events/{$event->canvas_id}.json");
+        $response = $canvasclient->calendar_events_delete($event->canvas_id);
     } catch (GuzzleHttp\Exception\ClientException $e) {
-        if ($e->getResponse()->getStatusCode() == 404) { // NOT FOUND
+        if ($e->getResponse()->getStatusCode() == 404) {
+            // Event not found in Canvas, let's just forget about it
             $event->delete();
             $log->warning("Event missing in Canvas", ['event'=>$event]);
             return true;
-        } elseif ($e->getResponse()->getStatusCode() == 401) { // UNAUTHORIZED
-            // Is the event deleted in canvas?
+        } elseif ($e->getResponse()->getStatusCode() == 401) {
+            // unauthorized, let me count the ways...
             try {
-                $response = $canvasclient->get("calendar_events/{$event->canvas_id}.json");
-                $responsedata = json_decode((string) $response->getBody(), true);
+                $response = $canvasclient->calendar_events_get($event->canvas_id);
             } catch (\RuntimeException $e) {
                 // Can't read from canvas, abort operation
-                $log->error("Unable to delete event in Canvas", ['event'=>$event]);
+                $log->error("Unable to delete event in Canvas (info fetch)", ['event' => $event, 'e' => $e]);
                 return false;
             }
-            if ($responsedata['workflow_state'] == 'deleted') {
+            if ($response->workflow_state == 'deleted') {
+                // Is the event deleted in canvas?
                 $event->delete();
-                $log->warning("Event marked as deleted in Canvas", ['event'=>$event]);
+                /** @todo This is not optimal, it leaves a shadow event in Canvas that can't be manipulated normally */
+                $log->warning("Event marked as deleted in Canvas", ['event' => $event]);
                 return true;
             } else {
-                $log->error("Unable to delete event in Canvas", ['event'=>$event]);
+                $log->error("Unable to delete event in Canvas", ['event' => $event, 'e' => $e]);
                 return false;
             }
         } else {
@@ -467,7 +460,7 @@ function add_timetable_to_canvas(array $courses, array $tp_activities, string $c
         ]);
         $log->debug("Pre filter timetable", [array_column($tp_activities, 'actid', 'id')]);
         $act_timetable = array_filter($tp_activities, function ($tp_act) use ($actid) {
-            return ($tp_act['actid'] == $actid);
+            return ($tp_act->actid == $actid);
         });
         $log->debug("Post filter timetable", [array_column($act_timetable, 'actid', 'id')]);
         add_timetable_to_one_canvas_course($course, $act_timetable, $courseid);
@@ -493,7 +486,7 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     $db_course->sis_course_id = $canvas_course['sis_course_id'];
     $db_course->save();
 
-    // Empty tp-timetable
+    // Empty tp-timetable, flush everything in Canvas
     if (!$timetable) {
         delete_canvas_events($db_course);
         return;
@@ -502,8 +495,8 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     // put tp-events in array (unnesting)
     $tp_events = array();
     foreach ($timetable as $t) {
-        foreach ($t['eventsequences'] as $eventsequence) {
-            foreach ($eventsequence['events'] as $event) {
+        foreach ($t->eventsequences as $eventsequence) {
+            foreach ($eventsequence->events as $event) {
                 $tp_events[] = $event;
             }
         }
@@ -512,14 +505,12 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
     // fetch canvas events found in db
     foreach ($db_course->canvas_events as $canvas_event_db) {
         try {
-            $response = $canvasclient->get("calendar_events/{$canvas_event_db->canvas_id}.json");
-            $canvas_event_ws = json_decode((string) $response->getBody(), true);
+            $canvas_event_ws = $canvasclient->calendar_events_get($canvas_event_db->canvas_id);
         } catch (\RuntimeException $e) {
             // Could not read from Canvas, skip to next
             $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
             break;
         }
-        $canvas_event_ws = json_decode((string) $response->getBody(), true);
         $found_matching_tp_event = false;
 
         // Look for match between canvas and tp
@@ -633,7 +624,7 @@ function full_sync(string $semester)
 
     // Fetch all active courses from TP
     try {
-        $tpclient->courses($semester, 1);
+        $tp_courses = $tpclient->courses($semester, 1);
     } catch (\RuntimeException $e) {
         $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
         return;
@@ -891,16 +882,14 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
 
     // REST call to tp, lookup course
     try {
-        $timetable = $tpclient->get("1.4/", ['query' => ['id' => $courseid, 'sem' => $semesterid, 'termnr' => $termnr]]);
+        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
     } catch (\RuntimeException $e) {
         $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
         return;
     }
 
-    // Decode json data
-    $timetable = json_decode((string) $timetable->getBody(), true);
-    if (count($timetable) == 0) {
-        $log->warn("Course not found in TP", ['courseid' => $courseid, 'semester' => $semester, 'term' => $termnr]);
+    if (!$timetable) {
+        $log->warn("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
         return;
     }
 
@@ -914,15 +903,15 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
     if (count($canvas_courses) == 1) { // Only one course in canvas, everything goes in here
         // Just merge group and plenary to a single array
         $tdata = [];
-        if (isset($timetable['data'])) {
-            if (isset($timetable['data']['group'])) {
-                $tdata = array_merge($tdata, $timetable['data']['group']);
+        if (isset($timetable->data)) {
+            if (isset($timetable->data->group)) {
+                $tdata = array_merge($tdata, $timetable->data->group);
             }
-            if (isset($timetable['data']['plenary'])) {
-                $tdata = array_merge($tdata, $timetable['data']['plenary']);
+            if (isset($timetable->data->plenary)) {
+                $tdata = array_merge($tdata, $timetable->data->plenary);
             }
         }
-        add_timetable_to_one_canvas_course(reset($canvas_courses), $tdata, $timetable['courseid']);
+        add_timetable_to_one_canvas_course(reset($canvas_courses), $tdata, $timetable->courseid);
     } else { // More than one course in Canvas - this is where the UA/UE magic happens
         // Find UE - several versions of a course might pose a problem here
         $ue = array_filter($canvas_courses, function (array $course) {
@@ -946,13 +935,13 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
         });
 
         $plenary_timetable = [];
-        if (isset($timetable['data']) && isset($timetable['data']['plenary'])) {
-            $plenary_timetable = $timetable['data']['plenary'];
+        if (isset($timetable->data) && isset($timetable->data->plenary)) {
+            $plenary_timetable = $timetable->data->plenary;
         }
 
         $group_timetable = [];
-        if (isset($timetable['data']) && isset($timetable['data']['group'])) {
-            $group_timetable = $timetable['data']['group'];
+        if (isset($timetable->data) && isset($timetable->data->group)) {
+            $group_timetable = $timetable->data->group;
         }
 
         $log->debug("Ready to update multicourse", [
@@ -963,11 +952,11 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
         ]);
 
         if (count($ue)) {
-            add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable['courseid']);
+            add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable->courseid);
         }
 
         if (count($ua)) {
-            add_timetable_to_canvas($ua, $group_timetable, $timetable['courseid']);
+            add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
         }
     }
 }
@@ -982,34 +971,31 @@ function queue_subscriber()
 {
     global $log;
 
-    // Connect to the RabbitMQ Server
-    $connection = new PhpAmqpLib\Connection\AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
-
-    // Create our channel
-    $channel = $connection->channel();
-    /** @todo $channel->prefetch(1) */
-
-    // Get exchange
-    $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
-
-    // Get our queue
-    list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true, false, false);
-    $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
-
-    // Subscribe to queue
-    $channel->basic_consume($queue_name, '', false, false, false, false, "TpCanvas\\queue_process");
-
-    while ($channel->is_consuming()) {
-        try {
-            $channel->wait();
-        } catch (PhpAmqpLib\Exception\AMQPProtocolChannelException $e) {
-            $log->error("Protocol Channel Exception", ['exception' => $e]);
+    while (true) {
+        /** @todo there needs to be more error-checking going on here */
+        $connection = new PhpAmqpLib\Connection\AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
+        $channel = $connection->channel();
+        /** @todo $channel->prefetch(1) */
+        $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
+        list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true, false, false);
+        $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
+        $channel->basic_consume($queue_name, '', false, false, false, false, "TpCanvas\\queue_process");
+    
+        while ($channel->is_consuming()) {
+            try {
+                $channel->wait();
+            } catch (PhpAmqpLib\Exception\AMQPProtocolChannelException $e) {
+                $log->error("Protocol Channel Exception", ['exception' => $e]);
+            } catch (PhpAmqpLib\Exception\AMQPConnectionClosedException $e) {
+                $log->error("Connection Closed Exception", ['exception' => $e]);
+            }
         }
+    
+        $log->info("Main loop cleanup");
+        $channel->close();
+        $connection->close();
+        sleep(5); // 5 seconds grace period before reconnecting
     }
-
-    $log->info("Normal exit, channel closed");
-    $channel->close();
-    $connection->close();
 }
 
 /**
@@ -1035,6 +1021,7 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 
     if (strpos($course['id'], 'BOOKING') !== false || strpos($course['id'], 'EKSAMEN') !== false) {
         // Ignore BOOKING and EKSAMEN messages
+        $log->info("Skipping because of type");
         return;
     }
 
