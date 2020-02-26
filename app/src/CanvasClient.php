@@ -74,6 +74,42 @@ class CanvasClient extends RESTClient
     }
 
     /**
+     * Create calendar event
+     * @param object $event The event to create
+     * @return object The newly created event
+     * @todo A good save returns 201 - should the rest be checked?
+     */
+    public function calendar_events_post(object $event)
+    {
+        $cevent = new \stdClass;
+        $cevent->calendar_event = $event;
+        $response = $this->post('calendar_events.json', ['json' => $cevent]);
+        return self::responseToNative($response);
+    }
+
+    /**
+     * Delete a calendar event
+     * @param int $id Calendar event id
+     * @return object deleted event
+     */
+    public function calendar_events_delete(int $id)
+    {
+        $response = $this->delete("calendar_events/{$id}");
+        return self::responseToNative($response);
+    }
+
+    /**
+     * Get a calendar event
+     * @param int $id Calendar event id
+     * @return object event
+     */
+    public function calendar_events_get(int $id)
+    {
+        $response = $this->get("calendar_events/{$id}");
+        return self::responseToNative($response);
+    }
+
+    /**
      * Compare to events. Returns true if equal (for some definition of equal)
      * @param object $event1
      * @param object $event2
