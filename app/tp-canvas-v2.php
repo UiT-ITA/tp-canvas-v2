@@ -86,7 +86,7 @@ exit;
 function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, string $courseid): bool
 {
     // If event is marked as deleted in canvas, pretend it's not there
-    if ($canvas_event['workflow_state']=='deleted') {
+    if ($canvas_event->workflow_state == 'deleted') {
         return false;
     }
 
