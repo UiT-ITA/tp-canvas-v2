@@ -78,12 +78,12 @@ exit;
  * Compare tp_event and canvas_event
  * Check for changes in title, location, start-date, end-date, staff and recording tag
  *
- * @param array $tp_event array from tp-ws
- * @param array $canvas_event array from canvas-ws
+ * @param object $tp_event event from tp-ws
+ * @param object $canvas_event event from canvas-ws
  * @param string $courseid Course id (e.g. INFO-1100). Required for title.
  * @return bool wether the events was "equal"
  */
-function tp_event_equals_canvas_event(array $tp_event, array $canvas_event, string $courseid): bool
+function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, string $courseid): bool
 {
     // If event is marked as deleted in canvas, pretend it's not there
     if ($canvas_event['workflow_state']=='deleted') {
@@ -564,7 +564,7 @@ function remove_local_courses_missing_from_canvas(array $canvas_courses)
  * @param string $semester Semester string "YY[h|v]" e.g "18v"
  * @return void
  */
-function check_canvas_structure_change($semester)
+function check_canvas_structure_change(string $semester)
 {
     global $log, $tpclient;
 

@@ -2,7 +2,7 @@
 
 - [ ] Use Sentry
 - [ ] Add multiple monolog handlers
-- [ ] Rewrite direct REST calls in code to use webservice wrappers
+- [x] Rewrite direct REST calls in code to use webservice wrappers
 - [x] Add dry-run mode !!!
 - [x] Dry-run should not ack messages!
 
