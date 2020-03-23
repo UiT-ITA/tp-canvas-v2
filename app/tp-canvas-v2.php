@@ -973,8 +973,14 @@ function queue_subscriber()
 
     while (true) {
         /** @todo there needs to be more error-checking going on here */
-        $connection = new PhpAmqpLib\Connection\AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
-        $channel = $connection->channel();
+        try {
+            $connection = new PhpAmqpLib\Connection\AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
+            $channel = $connection->channel();
+        } catch (PhpAmqpLib\Exception\AMQPIOException $e) {
+            $log->error("Error connecting to mq host", ['exception' => $e]);
+            sleep(60*5); // 5 minutes wait
+            continue; // Let's try again
+        }
         /** @todo $channel->prefetch(1) */
         $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
         list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true, false, false);
