@@ -18,7 +18,18 @@ require __DIR__ . '/vendor/autoload.php';
  */
 
 $log = new Logger('tpcanvas');
+
+// Sentry
+// Anything run in debug mode does not send events to sentry
+if ($_SERVER['debug'] != 'on' && strlen($_SERVER['sentry_dsn'])) {
+    $client = \Sentry\ClientBuilder::create(['dsn' => $_SERVER['sentry_dsn']])->getClient();
+    $sentryhandler = new \Sentry\Monolog\Handler(new \Sentry\State\Hub($client), Logger::ERROR);
+    $log->pushHandler($sentryhandler);
+}
+
+// Errorlog (stderr)
 if ($_SERVER['debug'] == 'on') {
+    // Debug mode sends EVERYTHING to stderr
     $log->pushHandler(new ErrorLogHandler());
 } else {
     $log->pushHandler(new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::INFO));
