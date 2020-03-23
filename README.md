@@ -20,11 +20,18 @@ Synchronize schedules between TP and Canvas
 * [Canvas](https://canvas.instructure.com/doc/api/index.html)
 * [UiO Gravitee services](https://api.uio.no/#!/apis) (Includes TP and FS)
 
+# Server environment
+
+* Run Docker as user on Centos: https://coderleaf.wordpress.com/2017/02/10/run-docker-as-user-on-centos7/
+* Configure http proxies for Docker: https://www.thegeekdiary.com/how-to-configure-docker-to-use-proxy/
+* 
+
+
 # Install
 
 * Copy `.env.sample.list` to `.env.test.list` and adjust values accordingly.
 * Run `composer install` from inside the app directory.
-
+(or `https_proxy='' composer install --ignore-platform-reqs` if your server is old)
 # Instructions
 
 Docker build:
