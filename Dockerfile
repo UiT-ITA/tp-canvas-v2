@@ -10,7 +10,7 @@ RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 COPY tp-canvas-php.ini $PHP_INI_DIR/conf.d/
 
 # Install composer
-COPY --from=composer:latest /usr/bin/composer /usr/local/bin/composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
 
 # Set up app
 COPY app/ /app
