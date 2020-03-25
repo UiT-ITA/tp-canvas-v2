@@ -128,7 +128,7 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
 
     // Fetch recording, curriculum and staff from canvas_event
     $dom = new PHPHtmlParser\Dom;
-    $dom->load($canvas_event['description']);
+    $dom->load($canvas_event->description);
     $meta = $dom->find('span#description-meta', 0);
     if (!$meta) {
         return false; // Missing meta? Pretend we're missing event.

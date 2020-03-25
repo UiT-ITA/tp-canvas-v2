@@ -51,7 +51,8 @@ docker build -t tp-canvas-v2 . ; docker run --env-file=.env.test.list -it --rm -
 
 ## Production
 
-* ´docker run --env-file=.env.prod.list -itd --name tp-canvas-v2-run tp-canvas-v2 mq`
+* `docker build --force-rm --no-cache --rm --build-arg https_proxy --build-arg http_proxy --tag tp-canvas-v2 .`
+* `docker run --env-file=.env.prod.list -itd --name tp-canvas-v2-run tp-canvas-v2 mq`
 * Copy tp-canvas-v2.service to /etc/systemd/system/
 * Build image (see above)
 * (as root): `systemctl daemon-reload ; systemctl start tp-canvas-v2 ; systemctl enable tp-canvas-v2`
