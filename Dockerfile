@@ -1,5 +1,9 @@
 FROM php:7.4-cli
 
+# Packages
+RUN apt-get update && apt-get install -y \
+        zip
+
 # Ensure PDO has the driver we need
 RUN docker-php-ext-install pdo_mysql sockets
 
