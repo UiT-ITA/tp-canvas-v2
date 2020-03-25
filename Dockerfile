@@ -21,6 +21,8 @@ COPY app/ /app
 WORKDIR /app
 
 # Ensure composer packages are in place
+ARG GITHUBOAUTH
+RUN composer config -g github-oauth.github.com ${GITHUBOAUTH}
 RUN composer install -d /app
 
 # Run
