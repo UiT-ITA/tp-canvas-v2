@@ -168,7 +168,7 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
 
     // Curriculum
     /** @todo check string format here */
-    if (md5($tp_event->curr) != $meta->curr) {
+    if (md5($tp_event->curr ?? '') != $meta->curr) {
         return false;
     }
 
