@@ -1,0 +1,12 @@
+[Unit]
+Description=TP-Canvas integration v2
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/docker start -a tp-canvas-v2-run
+ExecStop=/usr/bin/docker stop -t 3 tp-canvas-v2-run
+
+[Install]
+WantedBy=local.target

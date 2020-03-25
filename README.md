@@ -24,7 +24,6 @@ Synchronize schedules between TP and Canvas
 
 * Run Docker as user on Centos: https://coderleaf.wordpress.com/2017/02/10/run-docker-as-user-on-centos7/
 * Configure http proxies for Docker: https://www.thegeekdiary.com/how-to-configure-docker-to-use-proxy/
-* 
 
 
 # Install
@@ -32,6 +31,7 @@ Synchronize schedules between TP and Canvas
 * Copy `.env.sample.list` to `.env.test.list` and adjust values accordingly.
 * Run `composer install` from inside the app directory.
 (or `https_proxy='' composer install --ignore-platform-reqs` if your server is old)
+
 # Instructions
 
 Docker build:
@@ -47,3 +47,8 @@ docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-
 Oneliner for developing:
 ```
 docker build -t tp-canvas-v2 . ; docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-v2
+
+## Production
+* Copy tp-canvas-v2.service to /etc/systemd/system/
+* Build image (see above)
+* (as root): `systemctl daemon-reload ; systemctl start tp-canvas-v2 ; systemctl enable tp-canvas-v2`
