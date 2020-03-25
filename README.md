@@ -47,8 +47,11 @@ docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-
 Oneliner for developing:
 ```
 docker build -t tp-canvas-v2 . ; docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-v2
+```
 
 ## Production
+
+* ´docker run --env-file=.env.prod.list -itd --name tp-canvas-v2-run tp-canvas-v2 mq`
 * Copy tp-canvas-v2.service to /etc/systemd/system/
 * Build image (see above)
 * (as root): `systemctl daemon-reload ; systemctl start tp-canvas-v2 ; systemctl enable tp-canvas-v2`
