@@ -91,11 +91,9 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
     }
 
     // title
-    $title = "";
+    $title = "{$courseid} {$tp_event->summary}";
     if (isset($tp_event->title) && $tp_event->title) {
         $title = "{$courseid} ({$tp_event->title}) {$tp_event->summary}";
-    } else {
-        $title = "{$courseid} {$tp_event->summary}";
     }
     // Canvas API won't accept titles over 255 _characters_ (not bytes)
     if (mb_strlen($title) > 253) {
@@ -245,11 +243,9 @@ function add_event_to_canvas(object $event, object $db_course, string $courseid,
     }
 
     // Title
-    $title = '';
+    $title = "{$courseid} {$event->summary}";
     if (isset($event->title) && $event->title) {
         $title = "{$courseid} ({$event->title}) {$event->summary}";
-    } else {
-        $title = "{$courseid} {$event->summary}";
     }
     // Canvas API won't accept titles over 255 _characters_ (not bytes)
     if (mb_strlen($title) > 253) {
@@ -394,17 +390,15 @@ function delete_canvas_event(CanvasDbEvent $event): bool
                 /** @todo This is not optimal, it leaves a shadow event in Canvas that can't be manipulated normally */
                 $log->warning("Event marked as deleted in Canvas", ['event' => $event]);
                 return true;
-            } else {
-                $log->error("Unable to delete event in Canvas", ['event' => $event, 'e' => $e]);
-                return false;
             }
-        } else {
-            $log->error("Unable to delete event in Canvas", [
-                'event' => $event,
-                'error' => $e->getResponse()->getStatusCode()
-            ]);
+            $log->error("Unable to delete event in Canvas", ['event' => $event, 'e' => $e]);
             return false;
         }
+        $log->error("Unable to delete event in Canvas", [
+            'event' => $event,
+            'error' => $e->getResponse()->getStatusCode()
+        ]);
+        return false;
     } catch (\RuntimeException $e) {
         $log->error("Unable to delete event in Canvas", [
             'event' => $event,
@@ -511,14 +505,14 @@ function add_timetable_to_one_canvas_course(object $canvas_course, array $timeta
             $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
             break;
         }
-        $found_matching_tp_event = false;
+        $found_tp_event = false;
 
         // Look for match between canvas and tp
         foreach ($tp_events as $i => $tp_event) {
             if (tp_event_equals_canvas_event($tp_event, $canvas_event_ws, $courseid)) {
                 // No need to update, remove tp_event from array of events
                 unset($tp_events[$i]);
-                $found_matching_tp_event = true;
+                $found_tp_event = true;
                 $log->info(
                     "Event match in TP and Canvas - no update needed",
                     [
@@ -530,7 +524,7 @@ function add_timetable_to_one_canvas_course(object $canvas_course, array $timeta
             }
         }
 
-        if (!$found_matching_tp_event) {
+        if (!$found_tp_event) {
             // Nothing matched in tp, this event has been deleted from tp
             delete_canvas_event($canvas_event_db);
         }
@@ -670,11 +664,9 @@ function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, 
 function make_sis_course_id(string $courseid, string $semesterid, int $termnr): string
 {
     $semesteryear = substr($semesterid, 0, 2);
-    $sis_course_id = '';
+    $sis_course_id = "{$courseid}_{$termnr}_20{$semesteryear}_VÅR";
     if (strtoupper(substr($semesterid, -1)) == "H") {
         $sis_course_id = "{$courseid}_{$termnr}_20{$semesteryear}_HØST";
-    } else {
-        $sis_course_id = "{$courseid}_{$termnr}_20{$semesteryear}_VÅR";
     }
     return $sis_course_id;
 }
@@ -689,11 +681,9 @@ function make_sis_course_id(string $courseid, string $semesterid, int $termnr): 
 function make_sis_semester(string $semesterid, int $termnr): string
 {
     $semesteryear = substr($semesterid, 0, 2);
-    $sis_semester = '';
+    $sis_semester = "20{$semesteryear}_VÅR_{$termnr}";
     if (strtoupper(substr($semesterid, -1)) == "H") {
         $sis_semester = "20{$semesteryear}_HØST_{$termnr}";
-    } else {
-        $sis_semester = "20{$semesteryear}_VÅR_{$termnr}";
     }
     return $sis_semester;
 }
@@ -723,10 +713,9 @@ function haystack_needles(string $haystack, array $needles): bool
 */
 function semnr_to_string(float $semnr): string
 {
+    $sem = 'h';
     if ($semnr % 2 == 0) {
         $sem = 'v';
-    } else {
-        $sem = 'h';
     }
     $semyear = intval($semnr);
     return sprintf("%02d%s", $semyear, $sem);
@@ -987,13 +976,11 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 
     if (strpos($course['id'], 'BOOKING') !== false || strpos($course['id'], 'EKSAMEN') !== false) {
         // Ignore BOOKING and EKSAMEN messages
-        $log->debug("Skipping because of type", ['message'] => $msg);
+        $log->debug("Skipping because of type", ['message' => $msg]);
         return;
     }
 
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
-
-    $course_key = "{$course['id']}-{$course['terminnr']}-{$course['semesterid']}";
 
     // Stupid argument wrapping for non-threaded execution
     $t_id = $course['id'];
