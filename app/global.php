@@ -7,6 +7,7 @@ declare(strict_types = 1);
 
 use Monolog\Logger;
 use Monolog\Handler\ErrorLogHandler;
+use Monolog\ErrorHandler;
 
 /**
  * Include the composer autoloader - necessary to use composer packages.
@@ -18,9 +19,10 @@ require __DIR__ . '/vendor/autoload.php';
  */
 
 $log = new Logger('tpcanvas');
+ErrorHandler::register($log);
 
 // Sentry
-// Anything run in debug mode does not send events to sentry
+// Add sentry for anything not running in debug mode
 if ($_SERVER['debug'] != 'on' && strlen($_SERVER['sentry_dsn'])) {
     $client = \Sentry\ClientBuilder::create(['dsn' => $_SERVER['sentry_dsn']])->getClient();
     $sentryhandler = new \Sentry\Monolog\Handler(new \Sentry\State\Hub($client), Logger::ERROR);
