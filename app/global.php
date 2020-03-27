@@ -7,6 +7,8 @@ declare(strict_types = 1);
 
 use Monolog\Logger;
 use Monolog\Handler\ErrorLogHandler;
+use Monolog\Handler\StreamHandler;
+use Monolog\Handler\FilterHandler;
 use Monolog\ErrorHandler;
 
 /**
@@ -19,23 +21,23 @@ require __DIR__ . '/vendor/autoload.php';
  */
 
 $log = new Logger('tpcanvas');
-ErrorHandler::register($log);
 
-// Sentry
-// Add sentry for anything not running in debug mode
-if ($_SERVER['debug'] != 'on' && strlen($_SERVER['sentry_dsn'])) {
-    $client = \Sentry\ClientBuilder::create(['dsn' => $_SERVER['sentry_dsn']])->getClient();
-    $sentryhandler = new \Sentry\Monolog\Handler(new \Sentry\State\Hub($client), Logger::ERROR);
-    $log->pushHandler($sentryhandler);
-}
-
-// Errorlog (stderr)
 if ($_SERVER['debug'] == 'on') {
     // Debug mode sends EVERYTHING to stderr
     $log->pushHandler(new ErrorLogHandler());
 } else {
-    $log->pushHandler(new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::INFO));
+    // Add sentry for anything not running in debug mode
+    if (strlen($_SERVER['sentry_dsn'])) {
+        $client = \Sentry\ClientBuilder::create(['dsn' => $_SERVER['sentry_dsn']])->getClient();
+        $sentryhandler = new \Sentry\Monolog\Handler(new \Sentry\State\Hub($client), Logger::ERROR);
+        $log->pushHandler($sentryhandler);
+    }
+    // Levels info through warning are sent to stdout, error through emergency goes to stderr
+    $log->pushHandler(new ErrorLogHandler(ErrorLogHandler::OPERATING_SYSTEM, Logger::ERROR));
+    $stdh = new StreamHandler("php://stdout", Logger::INFO);
+    $log->pushHandler(new FilterHandler($stdh, Logger::INFO, Logger::WARNING));
 }
+ErrorHandler::register($log);
 
 if ($_SERVER['debug'] == 'on') {
     var_dump($_SERVER); // Dump environment to stdout
