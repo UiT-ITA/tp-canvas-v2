@@ -450,12 +450,12 @@ function add_timetable_to_canvas(array $courses, array $tp_activities, string $c
 
     foreach ($courses as $course) {
         // Find matching timetable
-        $actid = explode('_', $course['sis_course_id']);
+        $actid = explode('_', $course->sis_course_id);
         $actid = end($actid);
         $log->debug("Matching course", [
-            'sis id' => $course['sis_course_id'],
-            'sis import id' => $course['sis_import_id'],
-            'integration id' => $course['integration_id'],
+            'sis id' => $course->sis_course_id,
+            'sis import id' => $course->sis_import_id,
+            'integration id' => $course->integration_id,
             'actid' => $actid
         ]);
         $log->debug("Pre filter timetable", [array_column($tp_activities, 'actid', 'id')]);
@@ -470,20 +470,20 @@ function add_timetable_to_canvas(array $courses, array $tp_activities, string $c
 /**
  * Add a tp timetable to one canvas course
  *
- * @param array $canvas_course from canvas json
+ * @param object $canvas_course from canvas json
  * @param array $timetable from tp json
  * @param string $courseid (e.g INF-1100)
  * @return void
  * @todo waaay too many error conditions to return
  */
-function add_timetable_to_one_canvas_course(array $canvas_course, array $timetable, string $courseid)
+function add_timetable_to_one_canvas_course(object $canvas_course, array $timetable, string $courseid)
 {
     global $log, $canvasclient;
 
-    $db_course = CanvasDbCourse::find_or_create((int) $canvas_course['id']);
-    $db_course->name = $canvas_course['name'];
-    $db_course->course_code = $canvas_course['course_code'];
-    $db_course->sis_course_id = $canvas_course['sis_course_id'];
+    $db_course = CanvasDbCourse::find_or_create((int) $canvas_course->id);
+    $db_course->name = $canvas_course->name;
+    $db_course->course_code = $canvas_course->course_code;
+    $db_course->sis_course_id = $canvas_course->sis_course_id;
     $db_course->save();
 
     // Empty tp-timetable, flush everything in Canvas
@@ -538,7 +538,7 @@ function add_timetable_to_one_canvas_course(array $canvas_course, array $timetab
 
     // Add remaining tp-events in canvas
     foreach ($tp_events as $event) {
-        add_event_to_canvas($event, $db_course, $courseid, $canvas_course['id']);
+        add_event_to_canvas($event, $db_course, $courseid, $canvas_course->id);
     }
 }
 
@@ -770,15 +770,7 @@ function fetch_and_clean_canvas_courses(
     // Fetch Canvas courses
     /** @todo we need better error checking here */
     try {
-        $response = $canvasclient->get("accounts/1/courses", ['query' => ['search_term' => $courseid, 'per_page' => 999]]);
-        $canvas_courses = json_decode((string) $response->getBody(), true);
-        $nextpage = getPSR7NextPage($response);
-        // Loop through all pages
-        while ($nextpage) {
-            $response = $canvasclient->get($nextpage);
-            $canvas_courses = array_merge($canvas_courses, json_decode((string) $response->getBody(), true));
-            $nextpage = getPSR7NextPage($response);
-        }
+        $canvas_courses = $canvasclient->accounts_courses(1, ['search_term' => $courseid]);
     } catch (\RuntimeException $e) {
         $log->error("Unable to read paginated course list", [$e]);
         return array();
@@ -792,16 +784,16 @@ function fetch_and_clean_canvas_courses(
             3. sis_course_id contains our semester
         */
         $canvas_courses = array_filter($canvas_courses, function (array $course) use ($courseid, $sis_semester) {
-            if (!isset($course['sis_course_id'])) {
+            if (!isset($course->sis_course_id)) {
                 return false;
             }
-            if (is_null($course['sis_course_id'])) {
+            if (is_null($course->sis_course_id)) {
                 return false;
             }
-            if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
+            if (stripos($course->sis_course_id, "_{$courseid}_") === false) {
                 return false;
             }
-            if (stripos($course['sis_course_id'], $sis_semester) === false) {
+            if (stripos($course->sis_course_id, $sis_semester) === false) {
                 return false;
             }
             return true;
@@ -822,13 +814,13 @@ function fetch_and_clean_canvas_courses(
 
         // Remove wrong course ids
         $canvas_courses = array_filter($canvas_courses, function (array $course) use ($courseid) {
-            if (!isset($course['sis_course_id'])) {
+            if (!isset($course->sis_course_id)) {
                 return false;
             }
-            if (is_null($course['sis_course_id'])) {
+            if (is_null($course->sis_course_id)) {
                 return false;
             }
-            if (stripos($course['sis_course_id'], "_{$courseid}_") === false) {
+            if (stripos($course->sis_course_id, "_{$courseid}_") === false) {
                 return false;
             }
             return true;
@@ -836,33 +828,10 @@ function fetch_and_clean_canvas_courses(
         // Remove courses that does not matchy any of our semester combos
         $canvas_courses = array_filter($canvas_courses, function (array $course) use ($combos) {
             global $log;
-            return haystack_needles($course['sis_course_id'], $combos);
+            return haystack_needles($course->sis_course_id, $combos);
         });
     }
     return $canvas_courses;
-}
-
-/**
- * Find next page of a paginated canvas response
- *
- * @param GuzzleHttp\Psr7\Response $response Response from Canvas API
- * @return string The uri for next page, empty string otherwise.
- * @todo Needs better error handling
- */
-function getPSR7NextPage(GuzzleHttp\Psr7\Response $response): string
-{
-    $linkheader= $response->getHeader('Link')[0]; // Get link header - needs error handling
-    $nextpage = array();
-    // Parse out all links
-    preg_match_all('/\<(.+)\>; rel=\"(\w+)\"/iU', $linkheader, $nextpage, PREG_SET_ORDER);
-    // Reduce to only next link
-    $nextpage = array_filter($nextpage, function (array $entry) {
-        return ($entry[2] == "next");
-    });
-    if (count($nextpage)) {
-        return reset($nextpage)[1];
-    }
-    return '';
 }
 
 /**
@@ -915,7 +884,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
     } else { // More than one course in Canvas - this is where the UA/UE magic happens
         // Find UE - several versions of a course might pose a problem here
         $ue = array_filter($canvas_courses, function (array $course) {
-            if (stripos($course['sis_course_id'], 'UE_') === false) {
+            if (stripos($course->sis_course_id, 'UE_') === false) {
                 return false;
             }
             return true;
@@ -928,7 +897,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
         }
         // Find UA
         $ua = array_filter($canvas_courses, function (array $course) {
-            if (stripos($course['sis_course_id'], 'UA_') === false) {
+            if (stripos($course->sis_course_id, 'UA_') === false) {
                 return false;
             }
             return true;
