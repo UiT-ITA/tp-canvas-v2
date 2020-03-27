@@ -280,7 +280,7 @@ function add_event_to_canvas(object $event, object $db_course, string $courseid,
     try {
         $response = $canvasclient->calendar_events_post($cevent);
     } catch (\RuntimeException $e) {
-        $log->warning("Event creation failed in Canvas.", [
+        $log->error("Event creation failed in Canvas.", [
             'event' => $event,
             'payload' => $cevent,
             'exception' => $e
@@ -889,14 +889,14 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
     }
 
     if (!$timetable) {
-        $log->warn("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
+        $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
         return;
     }
 
     // Fetch courses from canvas
     $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
     if (empty($canvas_courses)) {
-        $log->info("Found no matching canvas course", ['course' => $courseid, 'semester' => $semesterid, 'termin' => $termnr]);
+        $log->notice("Found no matching canvas course", ['course' => $courseid, 'semester' => $semesterid, 'termin' => $termnr]);
         return;
     }
 
@@ -921,7 +921,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
             return true;
         });
         if (count($ue)>1) {
-            $log->error(
+            $log->notice(
                 "More than one UE matched in Canvas",
                 ['course' => $courseid, 'semester' => $semesterid, 'termnr' => $termnr]
             );
@@ -1014,15 +1014,15 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 {
     global $log;
 
-    $log->info("Message received from RabbitMQ", ['message' => $msg]);
-
     $course = json_decode($msg->body, true);
 
     if (strpos($course['id'], 'BOOKING') !== false || strpos($course['id'], 'EKSAMEN') !== false) {
         // Ignore BOOKING and EKSAMEN messages
-        $log->info("Skipping because of type");
+        $log->debug("Skipping because of type", ['message'] => $msg);
         return;
     }
+
+    $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
     $course_key = "{$course['id']}-{$course['terminnr']}-{$course['semesterid']}";
 
@@ -1106,7 +1106,7 @@ function compare_environments(string $timestamp)
             }
     
             if (count($eventst) || count($eventsp)) {
-                $log->debug("Differences in course", [
+                $log->info("Differences in course", [
                     'course' => $course->sis_course_id,
                     'test' => $eventst,
                     'prod' => $eventsp
