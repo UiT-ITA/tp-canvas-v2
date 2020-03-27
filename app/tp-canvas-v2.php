@@ -1007,7 +1007,7 @@ function compare_environments(string $timestamp)
     $canvastest = new CanvasClient('https://uit.test.instructure.com/', $_SERVER['canvas_key']);
     $canvasprod = new CanvasClient('https://uit.instructure.com/', $_SERVER['canvas_key']);
     $tpclient = new TPClient($_SERVER['tp_url'], $_SERVER['tp_key'], (int) $_SERVER['tp_institution']);
-    $courselist = $tpclient->lastchangedlist('2020-01-21T00:00:00');
+    $courselist = $tpclient->lastchangedlist($timestamp);
     
     // For each course in our list
     foreach ($courselist as $course) {
