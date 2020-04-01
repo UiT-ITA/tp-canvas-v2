@@ -932,7 +932,12 @@ function queue_subscriber()
     while (true) {
         /** @todo there needs to be more error-checking going on here */
         try {
-            $connection = new PhpAmqpLib\Connection\AMQPStreamConnection($_SERVER['mq_host'], 5672, $_SERVER['mq_user'], $_SERVER['mq_password']);
+            $connection = new PhpAmqpLib\Connection\AMQPStreamConnection(
+                $_SERVER['mq_host'],
+                5672,
+                $_SERVER['mq_user'],
+                $_SERVER['mq_password']
+            );
             $channel = $connection->channel();
         } catch (PhpAmqpLib\Exception\AMQPIOException $e) {
             $log->error("Error connecting to mq host", ['exception' => $e]);
@@ -982,12 +987,8 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
-    // Stupid argument wrapping for non-threaded execution
-    $t_id = $course['id'];
-    $t_semesterid = $course['semesterid'];
-    $t_terminnr = $course['terminnr'];
     /** @todo error handling */
-    update_one_tp_course_in_canvas($t_id, $t_semesterid, $t_terminnr);
+    update_one_tp_course_in_canvas($course['id'], $course['semesterid'], $course['terminnr']);
 
     /** @todo Don't ack until processing is verified as successful */
     // Don't ack if dryrun is on
