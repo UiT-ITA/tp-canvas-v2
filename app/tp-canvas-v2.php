@@ -749,7 +749,10 @@ function diagnose_course(string $courseid, int $canvasid, string $semesterid, in
 
         if (!$found_tp_event) {
             // Nothing matched in tp, this event has been deleted from tp
-            $log->info("Orphaned canvas event, scheduled for deletion", ['cevent' => cevent2str($canvas_event_ws)]);
+            $log->info("Orphaned canvas event, scheduled for deletion", [
+                'cevent' => cevent2str($canvas_event_ws),
+                'leastdiffs' => $leastdiffs
+                ]);
         }
     }
 
