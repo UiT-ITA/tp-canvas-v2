@@ -61,6 +61,13 @@ switch ($argv[1]) {
         }
         compare_environments($argv[2]);
         break;
+    case 'diagnosecourse':
+        if (!isset($argv[2], $argv[3], $argv[4], $argv[5])) {
+            echo "Error: Missing arguments!\n";
+            return;
+        }
+        diagnose_course($argv[2], (int) $argv[3], $argv[4], (int) $argv[5]);
+        break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
         echo "Usage: {$argv[0]} [command] [options]\n";
@@ -70,6 +77,7 @@ switch ($argv[1]) {
         echo "  Process changes from AMQP: mq\n";
         echo "  Check for Canvas change: canvasdiff 18h\n";
         echo "  Compare prod and test: compareenvironments 2020-01-21T00:00:00\n";
+        echo "  Diagnose a course: diagnosecourse MED-3601 123456 20v 1\n";
         break;
 }
 exit;
@@ -85,42 +93,30 @@ exit;
  */
 function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, string $courseid): bool
 {
+    global $log;
+
     // If event is marked as deleted in canvas, pretend it's not there
     if ($canvas_event->workflow_state == 'deleted') {
         return false;
     }
 
-    // title
-    $title = "{$courseid} {$tp_event->summary}";
-    if (isset($tp_event->title) && $tp_event->title) {
-        $title = "{$courseid} ({$tp_event->title}) {$tp_event->summary}";
-    }
-    // Canvas API won't accept titles over 255 _characters_ (not bytes)
-    if (mb_strlen($title) > 253) {
-        $title = mb_substr($title, 0, 253);
-    }
-    $title .= "\u{200B}\u{200B}";
-    if ($title != $canvas_event->title) {
+    $compare = tpToCanvasEvent($tp_event, $courseid, 0); // Missing canvas course id
+
+    // Title
+    if ($compare->title != $canvas_event->title) {
         return false;
     }
 
-    // location
-    $location = '';
-    if (isset($tp_event->room) && $tp_event->room) {
-        $location = array_map(function ($room) {
-            return "{$room->buildingid} {$room->roomid}";
-        }, $tp_event->room);
-        $location = implode(', ', $location);
-    }
-    if ($location != $canvas_event->location_name) {
+    // Location
+    if ($compare->location_name != $canvas_event->location_name) {
         return false;
     }
 
-    // dates
-    if (strtotime($tp_event->dtstart) != strtotime($canvas_event->start_at)) {
+    // Dates
+    if ($compare->start_at != $canvas_event->start_at) {
         return false;
     }
-    if (strtotime($tp_event->dtend) != strtotime($canvas_event->end_at)) {
+    if ($compare->end_at != $canvas_event->end_at) {
         return false;
     }
 
@@ -129,7 +125,8 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
     $dom->load($canvas_event->description);
     $meta = $dom->find('span#description-meta', 0);
     if (!$meta) {
-        return false; // Missing meta? Pretend we're missing event.
+        $log->warn("Missing meta from Canvas event", ['cevent' => $canvas_event]);
+        return false; // Missing meta -> pretend we're missing event.
     }
     $meta = json_decode($meta->text(true));
 
@@ -152,7 +149,6 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
     }
 
     // Recording tag
-    /** @todo check if this logic checks out */
     $recording = false;
     if (isset($tp_event->tags) && is_array($tp_event->tags)) {
         $tags = preg_grep('/Mediasite/', $tp_event->tags);
@@ -165,7 +161,6 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
     }
 
     // Curriculum
-    /** @todo check string format here */
     if (md5($tp_event->curr ?? '') != $meta->curr) {
         return false;
     }
@@ -174,12 +169,101 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
 }
 
 /**
+ * Compare tp_event and canvas_event
+ * Check for changes in title, location, start-date, end-date, staff and recording tag
+ *
+ * @param object $tp_event event from tp-ws
+ * @param object $canvas_event event from canvas-ws
+ * @param string $courseid Course id (e.g. INFO-1100). Required for title.
+ * @return array An array of differences
+ */
+function tp_event_equals_canvas_event2(object $tp_event, object $canvas_event, string $courseid): array
+{
+    global $log;
+
+    $diff = [];
+
+    // If event is marked as deleted in canvas, pretend it's not there
+    if ($canvas_event->workflow_state == 'deleted') {
+        $diff['workflow'] = [0, 1];
+    }
+
+    $compare = tpToCanvasEvent($tp_event, $courseid, 0); // Missing canvas course id
+
+    // Title
+    if ($compare->title != $canvas_event->title) {
+        $diff['title'] = [$compare->title, $canvas_event->title];
+    }
+
+    // Location
+    if ($compare->location_name != $canvas_event->location_name) {
+        $diff['location_name'] = [$compare->location_name, $canvas_event->location_name] ;
+    }
+
+    // Dates
+    if ($compare->start_at != $canvas_event->start_at) {
+        $diff['start_at'] = [$compare->start_at, $canvas_event->start_at];
+    }
+    if ($compare->end_at != $canvas_event->end_at) {
+        $diff['end_at'] = [$compare->end_at, $compare->end_at];
+    }
+
+    // Fetch recording, curriculum and staff from canvas_event
+    $dom = new PHPHtmlParser\Dom;
+    $dom->load($canvas_event->description);
+    $meta = $dom->find('span#description-meta', 0);
+    if (!$meta) {
+        $log->warn("Missing meta from Canvas event", ['cevent' => $canvas_event]);
+        $diff['meta'] = [1, 0];
+    }
+    $meta = json_decode($meta->text(true));
+
+    // Staff array
+    $staff_arr = array();
+    if (isset($tp_event->staffs) && is_array($tp_event->staffs)) {
+        $staff_arr = array_map(function ($staff) {
+            return "{$staff->firstname} {$staff->lastname}";
+        }, $tp_event->staffs);
+    }
+    if (isset($tp_event->{'xstaff-list'}) && is_array($tp_event->{'xstaff-list'})) {
+        $staff_arr = array_merge($staff_arr, array_map(function ($staff) {
+            return "{$staff->name} (ekstern) {$staff->url}";
+        }, $tp_event->{'xstaff-list'}));
+    }
+    sort($staff_arr);
+    sort($meta->staff);
+    if ($staff_arr != $meta->staff) {
+        $diff['staff'] = [$staff_arr, $meta->staff];
+    }
+
+    // Recording tag
+    $recording = false;
+    if (isset($tp_event->tags) && is_array($tp_event->tags)) {
+        $tags = preg_grep('/Mediasite/', $tp_event->tags);
+        if (count($tags) > 0) {
+            $recording = true;
+        }
+    }
+    if ($recording != $meta->recording) {
+        $diff['recording'] = [$recording, $meta->recording];
+    }
+
+    // Curriculum
+    if (md5($tp_event->curr ?? '') != $meta->curr) {
+        $diff['curr'] = [md5($tp_event->curr ?? ''), $meta->curr];
+    }
+
+    return $diff;
+}
+
+
+/**
  * Create event in Canvas and database
  *
  * @param object $event The event definition (from tp)
  * @param object $db_course The course db object to add event to
- * @param string $courseid
- * @param int $canvas_course_id
+ * @param string $courseid (KVI-1014)
+ * @param int $canvas_course_id (12325)
  * @return bool Operation success flag
  * @todo Ensure result is returned properly
  */
@@ -187,92 +271,13 @@ function add_event_to_canvas(object $event, object $db_course, string $courseid,
 {
     global $log, $canvasclient;
 
-    // Mazemap location
-    $location = '';
-    $map_url = '';
-    if (isset($event->room) && is_array($event->room)) {
-        $location = array_map(function ($room) {
-            return "{$room->buildingid} {$room->roomid}";
-        }, $event->room);
-        $location = implode(', ', $location);
-        foreach ($event->room as $room) {
-            $room_name="{$room->buildingid} {$room->roomid}";
-            $room_url="https://uit.no/mazemaproom?room_name=".urlencode($room_name)."&zoom=20";
-            $map_url .= "<a href={$room_url}> {$room_name}</a><br>";
-        }
-    }
+    $cevent = tpToCanvasEvent($event, $courseid, $canvas_course_id);
 
-    // Staff array
-    $staff_arr = array();
-    if (isset($event->staffs) && is_array($event->staffs)) {
-        $staff_arr = array_map(function ($staff) {
-            return "{$staff->firstname} {$staff->lastname}";
-        }, $event->staffs);
-    }
-    if (isset($event->{'xstaff-list'}) && is_array($event->{'xstaff-list'})) {
-        $staff_arr = array_merge($staff_arr, array_map(function ($staff) {
-            return "{$staff->name} (ekstern) {$staff->url}";
-        }, $event->{'xstaff-list'}));
-    }
-
-    // Staff string
-    $staff = array();
-    if (isset($event->staffs) && is_array($event->staffs)) {
-        $staff = array_map(function ($staffp) {
-            return "{$staffp->firstname} {$staffp->lastname}";
-        }, $event->staffs);
-    }
-    if (isset($event->{'xstaff-list'}) && is_array($event->{'xstaff-list'})) {
-        $staff = array_merge($staff_arr, array_map(function ($staffp) {
-            if ($staffp->url != '') {
-                return "<a href='{$staffp->url}'>{$staffp->name} (ekstern)</a>";
-            }
-            return "{$staffp->name} (ekstern) {$staffp->url}";
-        }, $event->{'xstaff-list'}));
-    }
-    $staff = implode("<br>", $staff);
-
-    // Recording tag
-    $recording = false;
-    if (isset($event->tags) && is_array($event->tags)) {
-        // Apparently any tag containing the word "Mediasite" means recording
-        $tags = preg_grep('/Mediasite/', $event->tags);
-        if (count($tags) > 0) {
-            $recording = true;
-        }
-    }
-
-    // Title
-    $title = "{$courseid} {$event->summary}";
-    if (isset($event->title) && $event->title) {
-        $title = "{$courseid} ({$event->title}) {$event->summary}";
-    }
-    // Canvas API won't accept titles over 255 _characters_ (not bytes)
-    if (mb_strlen($title) > 253) {
-        $title = mb_substr($title, 0, 253);
-    }
-    $title .= "\u{200B}\u{200B}";
-
-    $curr = $event->curr ?? '';
-    $editurl = $event->editurl ?? '';
-    $description_meta = new \stdClass();
-    $description_meta->recording = $recording;
-    $description_meta->staff = $staff_arr;
-    $description_meta->curr = md5($curr);
-
-    // Send to Canvas
-    $cevent = new \stdClass();
-    $cevent->context_code = "course_{$canvas_course_id}";
-    $cevent->title = $title;
-    $cevent->description = erb_description($recording, $map_url, $staff, $curr, $editurl, $description_meta);
-    $cevent->start_at = $event->dtstart;
-    $cevent->end_at = $event->dtend;
-    $cevent->location_name = $location;
     if ($_SERVER['dryrun'] == 'on') {
         $log->debug("Skipped calendar post", array('payload' => $cevent));
         return true;
     }
-    
+
     try {
         $response = $canvasclient->calendar_events_post($cevent);
     } catch (\RuntimeException $e) {
@@ -290,8 +295,114 @@ function add_event_to_canvas(object $event, object $db_course, string $courseid,
         $db_event->canvas_id = $response->id;
         $db_event->canvas_course_id = $canvas_course_id;
         $db_event->save();
-//        $log->info("Event created in Canvas", ['event' => $event, 'created' => $responsedata]);
+        $log->debug("Event created in Canvas", ['event' => $event]);
         return true;
+}
+
+/**
+ * TP Event to Canvas event conversion
+ *
+ * @param object $tpevent
+ * @param string $courseid KVI-1014
+ * @param string $canvas_course_id id number in Canvas
+ * @return object|nil
+ */
+function tpToCanvasEvent(object $tpevent, string $courseid, int $canvas_course_id): object
+{
+
+    global $canvasclient;
+
+    $canvasevent = new \stdClass();
+
+    // Context code
+    $canvasevent->context_code = "course_{$canvas_course_id}";
+
+    // Title
+    $canvasevent->title = "{$courseid} {$tpevent->summary}";
+    if (isset($tpevent->title) && $tpevent->title) {
+        $canvasevent->title = "{$courseid} ({$tpevent->title}) {$tpevent->summary}";
+    }
+    // Canvas API won't accept titles over 255 _characters_ (not bytes)
+    if (mb_strlen($canvasevent->title) > 253) {
+        $canvasevent->title = mb_substr($canvasevent->title, 0, 253);
+    }
+    $canvasevent->title .= "\u{200B}\u{200B}";
+
+    // Times
+    $canvasevent->start_at = $tpevent->dtstart;
+    $canvasevent->end_at = $tpevent->dtend;
+    
+    // Location
+    $canvasevent->location_name = '';
+    $map_url = '';
+    if (isset($tpevent->room) && is_array($tpevent->room)) {
+        $canvasevent->location_name = array_map(function ($room) {
+            return "{$room->buildingid} {$room->roomid}";
+        }, $tpevent->room);
+        $canvasevent->location_name = implode(', ', $canvasevent->location_name);
+        foreach ($tpevent->room as $room) {
+            $room_name="{$room->buildingid} {$room->roomid}";
+            $room_url="https://uit.no/mazemaproom?room_name=".urlencode($room_name)."&zoom=20";
+            $map_url .= "<a href={$room_url}> {$room_name}</a><br>";
+        }
+    }
+
+    // Staff array (used for meta array)
+    $staff_arr = array();
+    if (isset($tpevent->staffs) && is_array($tpevent->staffs)) {
+        $staff_arr = array_map(function ($staff) {
+            return "{$staff->firstname} {$staff->lastname}";
+        }, $tpevent->staffs);
+    }
+    if (isset($tpevent->{'xstaff-list'}) && is_array($tpevent->{'xstaff-list'})) {
+        $staff_arr = array_merge($staff_arr, array_map(function ($staff) {
+            return "{$staff->name} (ekstern) {$staff->url}";
+        }, $tpevent->{'xstaff-list'}));
+    }
+
+    // Staff string (used for description)
+    $staff = array();
+    if (isset($tpevent->staffs) && is_array($tpevent->staffs)) {
+        $staff = array_map(function ($staffp) {
+            return "{$staffp->firstname} {$staffp->lastname}";
+        }, $tpevent->staffs);
+    }
+    if (isset($tpevent->{'xstaff-list'}) && is_array($tpevent->{'xstaff-list'})) {
+        $staff = array_merge($staff_arr, array_map(function ($staffp) {
+            if ($staffp->url != '') {
+                return "<a href='{$staffp->url}'>{$staffp->name} (ekstern)</a>";
+            }
+            return "{$staffp->name} (ekstern) {$staffp->url}";
+        }, $tpevent->{'xstaff-list'}));
+    }
+    $staff = implode("<br>", $staff);
+
+    // Recording tag
+    $recording = false;
+    if (isset($tpevent->tags) && is_array($tpevent->tags)) {
+        // Apparently any tag containing the word "Mediasite" means recording
+        $tags = preg_grep('/Mediasite/', $tpevent->tags);
+        if (count($tags) > 0) {
+            $recording = true;
+        }
+    }
+
+    // Meta object
+    $description_meta = new \stdClass();
+    $description_meta->recording = $recording;
+    $description_meta->staff = $staff_arr;
+    $description_meta->curr = md5($tpevent->curr ?? '');
+
+    // Create description
+    $canvasevent->description = erb_description(
+        $recording,
+        $map_url,
+        $staff,
+        ($tpevent->curr ?? ''),
+        ($tpevent->editurl ?? ''),
+        $description_meta
+    );
+    return $canvasevent;
 }
 
 /**
@@ -499,9 +610,12 @@ function add_timetable_to_one_canvas_course(object $canvas_course, array $timeta
     // fetch canvas events found in db
     foreach ($db_course->canvas_events as $canvas_event_db) {
         try {
+            // Get the corresponding canvas object
             $canvas_event_ws = $canvasclient->calendar_events_get($canvas_event_db->canvas_id);
         } catch (\RuntimeException $e) {
             // Could not read from Canvas, skip to next
+            // @todo This is probably not the correct way to handle it, should
+            // the exception bubble up? What happens on a 404?
             $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
             break;
         }
@@ -513,12 +627,9 @@ function add_timetable_to_one_canvas_course(object $canvas_course, array $timeta
                 // No need to update, remove tp_event from array of events
                 unset($tp_events[$i]);
                 $found_tp_event = true;
-                $log->info(
+                $log->debug(
                     "Event match in TP and Canvas - no update needed",
-                    [
-                        'db_course' => $db_course,
-                        'canvas_event_db' => $canvas_event_db
-                    ]
+                    ['db_course' => $db_course,'canvas_event_db' => $canvas_event_db]
                 );
                 break;
             }
@@ -534,6 +645,132 @@ function add_timetable_to_one_canvas_course(object $canvas_course, array $timeta
     foreach ($tp_events as $event) {
         add_event_to_canvas($event, $db_course, $courseid, $canvas_course->id);
     }
+}
+
+/**
+ * Diagnose a course
+ *
+ * @param string $courseid e.g MED3601
+ * @param string $canvasid e.g. 1232355
+ * @param string $semesterid e.g. 20v
+ * @param string $termnr e.g. 1
+ * @return void
+ */
+function diagnose_course(string $courseid, int $canvasid, string $semesterid, int $termnr): void
+{
+    global $log, $canvasclient, $tpclient;
+
+    // REST call to tp, lookup course
+    try {
+        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
+        return;
+    }
+
+    if (!$timetable) {
+        $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
+        return;
+    }
+
+    $plenary_timetable = [];
+    if (isset($timetable->data) && isset($timetable->data->plenary)) {
+        $plenary_timetable = $timetable->data->plenary;
+    }
+
+    $group_timetable = [];
+    if (isset($timetable->data) && isset($timetable->data->group)) {
+        $group_timetable = $timetable->data->group;
+    }
+
+    $timetable = $plenary_timetable; // @todo this is oversimplified
+
+    $canvas_course = $canvasclient->courses_get($canvasid);
+    $db_course = CanvasDbCourse::find_or_create((int) $canvas_course->id);
+    $db_course->name = $canvas_course->name;
+    $db_course->course_code = $canvas_course->course_code;
+    $db_course->sis_course_id = $canvas_course->sis_course_id;
+    // Save removed
+
+    // Empty tp-timetable, flush everything in Canvas
+    if (!$timetable) {
+        $log->info("Empty tp timetable! Aborting.\n");
+        return;
+    }
+
+    // put tp-events in array (unnesting)
+    $tp_events = array();
+    foreach ($timetable as $t) {
+        foreach ($t->eventsequences as $eventsequence) {
+            foreach ($eventsequence->events as $event) {
+                $tp_events[] = $event;
+            }
+        }
+    }
+
+    // fetch canvas events found in db
+    foreach ($db_course->canvas_events as $canvas_event_db) {
+        try {
+            // Get the corresponding canvas object
+            $canvas_event_ws = $canvasclient->calendar_events_get($canvas_event_db->canvas_id);
+        } catch (\RuntimeException $e) {
+            // Could not read from Canvas, skip to next
+            // @todo This is probably not the correct way to handle it, should
+            // the exception bubble up? What happens on a 404?
+            $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
+            break;
+        }
+        $found_tp_event = false;
+
+        // Look for match between canvas and tp
+        $leastdiffs = [];
+        foreach ($tp_events as $i => $tp_event) {
+            $diffs = tp_event_equals_canvas_event2($tp_event, $canvas_event_ws, $courseid);
+            if (!count($diffs)) {
+                // No need to update, remove tp_event from array of events
+                unset($tp_events[$i]);
+                $found_tp_event = true;
+                $log->info(
+                    "Event match in TP and Canvas - no update needed",
+                    ['cevent' => cevent2str($canvas_event_ws)]
+                );
+                break;
+            }
+            if (count($diffs)) {
+                // Differences found
+                if (!count($leastdiffs)) {
+                    $leastdiffs = $diffs;
+                }
+                if (count($leastdiffs) > count($diffs)) {
+                    $leastdiffs = $diffs;
+                }
+            }
+        }
+
+        if (!$found_tp_event) {
+            // Nothing matched in tp, this event has been deleted from tp
+            $log->info("Orphaned canvas event, scheduled for deletion", ['cevent' => cevent2str($canvas_event_ws)]);
+        }
+    }
+
+    // Add remaining tp-events in canvas
+    foreach ($tp_events as $event) {
+        $log->info("TP event scheduled for canvas", [tpevent2str($event)]);
+    }
+}
+
+function cevent2str(object $cevent)
+{
+    $date = strtotime($cevent->start_at);
+    $date = date("dmy H:i", $date);
+    return "{$cevent->id}:{$cevent->title} {$date}";
+}
+
+function tpevent2str(object $tpevent)
+{
+    $date = strtotime($tpevent->dtstart);
+    $date = date("dmy H:i", $date);
+    return "{$tpevent->eventid}:{$tpevent->summary} {$date}";
 }
 
 /**
@@ -869,7 +1106,9 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
                 $tdata = array_merge($tdata, $timetable->data->plenary);
             }
         }
-        add_timetable_to_one_canvas_course(reset($canvas_courses), $tdata, $timetable->courseid);
+        $course = reset($canvas_courses);
+        $log->debug("Found a 1-1 match", ['course' => $courseid, 'canvas' => $course]);
+        add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
     } else { // More than one course in Canvas - this is where the UA/UE magic happens
         // Find UE - several versions of a course might pose a problem here
         $ue = array_filter($canvas_courses, function (array $course) {

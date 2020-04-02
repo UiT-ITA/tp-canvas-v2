@@ -34,9 +34,9 @@ Synchronize schedules between TP and Canvas
 
 # Instructions
 
-Docker build:
+Docker forced build:
 ```
-docker build -t tp-canvas-v2 .
+docker rmi tp-canvas-v2 ; docker build --no-cache --tag tp-canvas-v2 .
 ```
 
 Docker run:
@@ -46,7 +46,7 @@ docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-
 
 Oneliner for developing:
 ```
-docker build -t tp-canvas-v2 . ; docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-v2
+docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run --volume "/Users/fuzzy76/repos/tp-canvas-v2/app/:/app/" tp-canvas-v2
 ```
 
 ## Production

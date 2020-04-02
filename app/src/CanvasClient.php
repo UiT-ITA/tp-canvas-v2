@@ -109,8 +109,18 @@ class CanvasClient extends RESTClient
         return self::responseToNative($response);
     }
 
+    /** Get a course object
+     * @param int $id Course id
+     * @return object course
+     */
+    public function courses_get(int $id): object
+    {
+        $response = $this->get("courses/{$id}");
+        return self::responseToNative($response);
+    }
+
     /**
-     * Compare to events. Returns true if equal (for some definition of equal)
+     * Compare two events. Returns true if equal (for some definition of equal)
      * @param object $event1
      * @param object $event2
      * @return bool isEqual
