@@ -1012,7 +1012,7 @@ function fetch_and_clean_canvas_courses(
             2. sis_course_id contains our course id as an element
             3. sis_course_id contains our semester
         */
-        $canvas_courses = array_filter($canvas_courses, function (array $course) use ($courseid, $sis_semester) {
+        $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid, $sis_semester) {
             if (!isset($course->sis_course_id)) {
                 return false;
             }
@@ -1042,7 +1042,7 @@ function fetch_and_clean_canvas_courses(
         }
 
         // Remove wrong course ids
-        $canvas_courses = array_filter($canvas_courses, function (array $course) use ($courseid) {
+        $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid) {
             if (!isset($course->sis_course_id)) {
                 return false;
             }
@@ -1055,7 +1055,7 @@ function fetch_and_clean_canvas_courses(
             return true;
         });
         // Remove courses that does not matchy any of our semester combos
-        $canvas_courses = array_filter($canvas_courses, function (array $course) use ($combos) {
+        $canvas_courses = array_filter($canvas_courses, function (object $course) use ($combos) {
             global $log;
             return haystack_needles($course->sis_course_id, $combos);
         });
@@ -1114,7 +1114,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
         add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
     } else { // More than one course in Canvas - this is where the UA/UE magic happens
         // Find UE - several versions of a course might pose a problem here
-        $ue = array_filter($canvas_courses, function (array $course) {
+        $ue = array_filter($canvas_courses, function (object $course) {
             if (stripos($course->sis_course_id, 'UE_') === false) {
                 return false;
             }
@@ -1127,7 +1127,7 @@ function update_one_tp_course_in_canvas(string $courseid, string $semesterid, in
             );
         }
         // Find UA
-        $ua = array_filter($canvas_courses, function (array $course) {
+        $ua = array_filter($canvas_courses, function (object $course) {
             if (stripos($course->sis_course_id, 'UA_') === false) {
                 return false;
             }
