@@ -113,10 +113,10 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
     }
 
     // Dates
-    if ($compare->start_at != $canvas_event->start_at) {
+    if (strtotime($compare->start_at) != strtotime($canvas_event->start_at)) {
         return false;
     }
-    if ($compare->end_at != $canvas_event->end_at) {
+    if (strtotime($compare->end_at) != strtotime($canvas_event->end_at)) {
         return false;
     }
 
@@ -201,11 +201,11 @@ function tp_event_equals_canvas_event2(object $tp_event, object $canvas_event, s
     }
 
     // Dates
-    if ($compare->start_at != $canvas_event->start_at) {
+    if (strtotime($compare->start_at) != strtotime($canvas_event->start_at)) {
         $diff['start_at'] = [$compare->start_at, $canvas_event->start_at];
     }
-    if ($compare->end_at != $canvas_event->end_at) {
-        $diff['end_at'] = [$compare->end_at, $compare->end_at];
+    if (strtotime($compare->end_at) != strtotime($canvas_event->end_at)) {
+        $diff['end_at'] = [$compare->end_at, $canvas_event->end_at];
     }
 
     // Fetch recording, curriculum and staff from canvas_event
