@@ -12,6 +12,8 @@ use PHPHtmlParser;
 use PhpAmqpLib;
 use GuzzleHttp;
 
+#region main
+
 $log->info("Starting run");
 
 $canvasclient = new CanvasClient($_SERVER['canvas_url'], $_SERVER['canvas_key']);
@@ -28,45 +30,45 @@ switch ($argv[1]) {
             echo "Error: Missing arguments!\n";
             return;
         }
-        full_sync($argv[2]);
+        cmd_semester($argv[2]);
         break;
     case 'course':
         if (!isset($argv[2], $argv[3], $argv[4])) {
             echo "Error: Missing arguments!\n";
             return;
         }
-        update_one_tp_course_in_canvas($argv[2], $argv[3], (int) $argv[4]);
+        cmd_course($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'removecourse':
         if (!isset($argv[2], $argv[3], $argv[4])) {
             echo "Error: Missing arguments!\n";
             return;
         }
-        remove_one_tp_course_from_canvas($argv[2], $argv[3], (int) $argv[4]);
+        cmd_removecourse($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'mq':
-        queue_subscriber();
+        cmd_mq();
         break;
     case 'canvasdiff':
         if (!isset($argv[2])) {
             echo "Error: Missing arguments!\n";
             return;
         }
-        check_canvas_structure_change($argv[2]);
+        cmd_canvasdiff($argv[2]);
         break;
     case 'compareenvironments':
         if (!isset($argv[2])) {
             echo "Error: Missing arguments!\n";
             return;
         }
-        compare_environments($argv[2]);
+        cmd_compareenvironments($argv[2]);
         break;
     case 'diagnosecourse':
         if (!isset($argv[2], $argv[3], $argv[4], $argv[5])) {
             echo "Error: Missing arguments!\n";
             return;
         }
-        diagnose_course($argv[2], (int) $argv[3], $argv[4], (int) $argv[5]);
+        cmd_diagnosecourse($argv[2], (int) $argv[3], $argv[4], (int) $argv[5]);
         break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
@@ -81,6 +83,452 @@ switch ($argv[1]) {
         break;
 }
 exit;
+
+#endregion main
+
+#region commands
+
+/**
+ * Update entire semester in Canvas
+ *
+ * @param string $semester "YY[h|v]" e.g "18v"
+ * @return void
+ */
+function cmd_semester(string $semester)
+{
+    global $log, $tpclient;
+
+    $log->info("Starting full sync", ['semester' => $semester]);
+
+    // Fetch all active courses from TP
+    try {
+        $tp_courses = $tpclient->courses($semester, 1);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
+        return;
+    }
+
+    foreach ($tp_courses->data as $tp_course) {
+        // Stupid thread argument wrapping end
+        $log->info("Updating one course", ['course' => $tp_course]);
+        cmd_course($tp_course->id, $semester, $tp_course->terminnr);
+        /** @todo error handling here? */
+    }
+}
+
+/**
+ * Update one course in Canvas
+ * This is the function called for change events from rabbitmq. It is also
+ * called from check_canvas_structure() (in turn called from cronjob) and
+ * cmd_semester() (for every single active course in tp).
+ *
+ * @param string $courseid e.g "INF-1100"
+ * @param string $semesterid e.g "18v"
+ * @param int $termnr
+ * @return void
+ */
+function cmd_course(string $courseid, string $semesterid, int $termnr)
+{
+    global $log, $tpclient;
+
+    // REST call to tp, lookup course
+    try {
+        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
+        return;
+    }
+
+    if (!$timetable) {
+        $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
+        return;
+    }
+
+    // Fetch courses from canvas
+    $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
+    if (empty($canvas_courses)) {
+        $log->notice("Found no matching canvas course", ['course' => $courseid, 'semester' => $semesterid, 'termin' => $termnr]);
+        return;
+    }
+
+    if (count($canvas_courses) == 1) { // Only one course in canvas, everything goes in here
+        // Just merge group and plenary to a single array
+        $tdata = [];
+        if (isset($timetable->data)) {
+            if (isset($timetable->data->group)) {
+                $tdata = array_merge($tdata, $timetable->data->group);
+            }
+            if (isset($timetable->data->plenary)) {
+                $tdata = array_merge($tdata, $timetable->data->plenary);
+            }
+        }
+        $course = reset($canvas_courses);
+        $log->debug("Found a 1-1 match", ['course' => $courseid, 'canvas' => $course]);
+        add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
+    } else { // More than one course in Canvas - this is where the UA/UE magic happens
+        // Find UE - several versions of a course might pose a problem here
+        $ue = array_filter($canvas_courses, function (object $course) {
+            if (stripos($course->sis_course_id, 'UE_') === false) {
+                return false;
+            }
+            return true;
+        });
+        if (count($ue)>1) {
+            $log->notice(
+                "More than one UE matched in Canvas",
+                ['course' => $courseid, 'semester' => $semesterid, 'termnr' => $termnr]
+            );
+        }
+        // Find UA
+        $ua = array_filter($canvas_courses, function (object $course) {
+            if (stripos($course->sis_course_id, 'UA_') === false) {
+                return false;
+            }
+            return true;
+        });
+
+        $plenary_timetable = [];
+        if (isset($timetable->data) && isset($timetable->data->plenary)) {
+            $plenary_timetable = $timetable->data->plenary;
+        }
+
+        $group_timetable = [];
+        if (isset($timetable->data) && isset($timetable->data->group)) {
+            $group_timetable = $timetable->data->group;
+        }
+
+        $log->debug("Ready to update multicourse", [
+            'canvas ue' => array_column($ue, 'sis_course_id'),
+            'tp plenary' => array_column($plenary_timetable, 'id'),
+            'canvas ua' => array_column($ua, 'sis_course_id'),
+            'tp group' => array_column($group_timetable, 'id')
+        ]);
+
+        if (count($ue)) {
+            add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable->courseid);
+        }
+
+        if (count($ua)) {
+            add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
+        }
+    }
+}
+
+/**
+ * Remove events for one tp course from canvas
+ * Called explicitly from commandline
+ *
+ * @param string $courseid
+ * @param string $semesterid
+ * @param int $termnr
+ * @return void
+ */
+function cmd_removecourse(string $courseid, string $semesterid, int $termnr)
+{
+    $sis_semester = make_sis_semester($semesterid, $termnr);
+
+    /** @todo verify this like condition */
+    $courses = CanvasDbCourse::findBySisLike("%{$courseid}\\_%\\_{$sis_semester}%");
+    foreach ($courses as $course) {
+        delete_canvas_events($course);
+    }
+}
+
+/**
+ * Subscribe to message queue and update when courses change
+ * This is what runs as a service
+ *
+ * @return void
+ */
+function cmd_mq()
+{
+    global $log;
+
+    while (true) {
+        /** @todo there needs to be more error-checking going on here */
+        try {
+            $connection = new PhpAmqpLib\Connection\AMQPStreamConnection(
+                $_SERVER['mq_host'],
+                5672,
+                $_SERVER['mq_user'],
+                $_SERVER['mq_password']
+            );
+            $channel = $connection->channel();
+        } catch (PhpAmqpLib\Exception\AMQPIOException $e) {
+            $log->error("Error connecting to mq host", ['exception' => $e]);
+            sleep(60*5); // 5 minutes wait
+            continue; // Let's try again
+        }
+        /** @todo $channel->prefetch(1) */
+        $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
+        list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true, false, false);
+        $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
+        $channel->basic_consume($queue_name, '', false, false, false, false, "TpCanvas\\queue_process");
+    
+        while ($channel->is_consuming()) {
+            try {
+                $channel->wait();
+            } catch (PhpAmqpLib\Exception\AMQPProtocolChannelException $e) {
+                $log->error("Protocol Channel Exception", ['exception' => $e]);
+            } catch (PhpAmqpLib\Exception\AMQPConnectionClosedException $e) {
+                $log->error("Connection Closed Exception", ['exception' => $e]);
+            }
+        }
+    
+        $log->info("Main loop cleanup");
+        $channel->close();
+        $connection->close();
+        sleep(5); // 5 seconds grace period before reconnecting
+    }
+}
+
+/**
+ * Check for structural changes in canvas courses.
+ * Only called explicitly from command line - called in cronjob
+ *
+ * @param string $semester Semester string "YY[h|v]" e.g "18v"
+ * @return void
+ */
+function cmd_canvasdiff(string $semester)
+{
+    global $log, $tpclient;
+
+    // Fetch all active courses from TP
+    try {
+        $tp_courses = $tpclient->courses($semester, 1);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
+        return;
+    }
+
+    // For each course in tp...
+    foreach ($tp_courses->data as $tp_course) {
+        // Create Canvas SIS string
+        $sis_semester = make_sis_semester($semester, $tp_course->terminnr);
+        // Fetch course candidates from Canvas
+        $canvas_courses = fetch_and_clean_canvas_courses($tp_course->id, $semester, $tp_course->terminnr, false);
+        $canvas_courses_ids = array_column($canvas_courses, 'sis_course_id');
+
+        // ? Seems to collect sis_course_id for all courses that we have touched that matches
+        /** @todo verify this like syntax */
+        $local_courses = CanvasDbCourse::findBySisLike("%{$tp_course->id}\\_%\\_{$sis_semester}%");
+        $local_courses = array_column($local_courses, 'sis_course_id');
+
+        // Gather id's that only exist in one of the arrays?
+        $local_diff = array_diff($local_courses, $canvas_courses_ids);
+        $canvas_diff = array_diff($canvas_courses_ids, $local_courses);
+        $diff = array_merge($local_diff, $canvas_diff);
+
+        if ($local_diff) {
+            // Local courses that does not exist in canvas any more
+            remove_local_courses_missing_from_canvas($local_diff);
+            $log->warning('Local course removed from canvas', ['tp_course' => $tp_course, 'semester' => $semester]);
+            /** @todo there used to be a sentry event here as well? */
+        }
+
+        if ($diff) {
+            // Courses in canvas that we have no trace of locally
+            /** @todo should this really have been $canvas_diff ? */
+            cmd_course($tp_course->id, $semester, $tp_course->terminnr);
+            $log->warning('Course changed in canvas and need to update', ['tp_course' => $tp_course, 'semester' => $semester]);
+        }
+    }
+}
+
+/**
+ * Compare production and test, outputting differences
+ * @param string $timestamp timestamp for last environment update in ISO-8601 format e.g "2020-01-21T00:00:00"
+ */
+function cmd_compareenvironments(string $timestamp)
+{
+    global $log;
+
+    $canvastest = new CanvasClient('https://uit.test.instructure.com/', $_SERVER['canvas_key']);
+    $canvasprod = new CanvasClient('https://uit.instructure.com/', $_SERVER['canvas_key']);
+    $tpclient = new TPClient($_SERVER['tp_url'], $_SERVER['tp_key'], (int) $_SERVER['tp_institution']);
+    $courselist = $tpclient->lastchangedlist($timestamp);
+    
+    // For each course in our list
+    foreach ($courselist as $course) {
+        // Fetch matches from both environments, filter to courses present in both.
+        if ($course->id == "BOOKING") {
+            // Dunno why TP returns this, skip it...
+            continue;
+        }
+        try {
+            $coursest = fetchCourses($canvastest, $course->id);
+            $coursesp = fetchCourses($canvasprod, $course->id);
+        } catch (RuntimeException $e) {
+            // Abort this course. See if the next is any better.
+            $log->error("Could not fetch Canvas candidates - skipping", ['course' => $course->id, 'exception' => $e]);
+            break;
+        }
+        $courses_not = array_merge(
+            array_diff_key($coursest, $coursesp),
+            array_diff_key($coursesp, $coursest)
+        );
+
+        $courses = array_intersect_key($coursest, $coursesp);
+        if (count($courses_not)) {
+            $log->info("Courses not matching", ['courses' => $courses_not]);
+        }
+        if (empty($courses)) {
+            $log->info("No matching courses", ['course' => $course]);
+            break;
+        }
+        foreach ($courses as $course) {
+            // Fetch all calendar items
+            try {
+                $eventst = $canvastest->calendar_events(['context_codes[]' => "course_{$course->id}"]);
+                $eventsp = $canvasprod->calendar_events(['context_codes[]' => "course_{$course->id}"]);
+            } catch (RuntimeException $e) {
+                // Abort this course. See if the next is any better.
+                $log->error("Could not fetch Canvas events - skipping", [
+                    'course' => $course->sis_course_id,
+                    'exception' => $e
+                ]);
+                break;
+            }
+    
+            foreach ($eventsp as $pkey => $pevent) {
+                foreach ($eventst as $tkey => $tevent) {
+                    if (CanvasClient::eventsEqual($pevent, $tevent)) {
+                        // If equal, remove from both lists
+                        unset($eventst[$tkey]);
+                        unset($eventsp[$pkey]);
+                    }
+                }
+            }
+    
+            if (count($eventst) || count($eventsp)) {
+                $log->info("Differences in course", [
+                    'course' => $course->sis_course_id,
+                    'test' => $eventst,
+                    'prod' => $eventsp
+                ]);
+            }
+        }
+    }
+}
+
+/**
+ * Diagnose a course
+ *
+ * @param string $courseid e.g MED3601
+ * @param string $canvasid e.g. 1232355
+ * @param string $semesterid e.g. 20v
+ * @param string $termnr e.g. 1
+ * @return void
+ */
+function cmd_diagnosecourse(string $courseid, int $canvasid, string $semesterid, int $termnr): void
+{
+    global $log, $canvasclient, $tpclient;
+
+    // REST call to tp, lookup course
+    try {
+        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
+    } catch (\RuntimeException $e) {
+        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
+        return;
+    }
+
+    if (!$timetable) {
+        $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
+        return;
+    }
+
+    $plenary_timetable = [];
+    if (isset($timetable->data) && isset($timetable->data->plenary)) {
+        $plenary_timetable = $timetable->data->plenary;
+    }
+
+    $group_timetable = [];
+    if (isset($timetable->data) && isset($timetable->data->group)) {
+        $group_timetable = $timetable->data->group;
+    }
+
+    $timetable = $plenary_timetable; // @todo this is oversimplified
+
+    $canvas_course = $canvasclient->courses_get($canvasid);
+    $db_course = CanvasDbCourse::find_or_create((int) $canvas_course->id);
+    $db_course->name = $canvas_course->name;
+    $db_course->course_code = $canvas_course->course_code;
+    $db_course->sis_course_id = $canvas_course->sis_course_id;
+    // Save removed
+
+    // Empty tp-timetable, flush everything in Canvas
+    if (!$timetable) {
+        $log->info("Empty tp timetable! Aborting.\n");
+        return;
+    }
+
+    // put tp-events in array (unnesting)
+    $tp_events = array();
+    foreach ($timetable as $t) {
+        foreach ($t->eventsequences as $eventsequence) {
+            foreach ($eventsequence->events as $event) {
+                $tp_events[] = $event;
+            }
+        }
+    }
+
+    // fetch canvas events found in db
+    foreach ($db_course->canvas_events as $canvas_event_db) {
+        try {
+            // Get the corresponding canvas object
+            $canvas_event_ws = $canvasclient->calendar_events_get($canvas_event_db->canvas_id);
+        } catch (\RuntimeException $e) {
+            // Could not read from Canvas, skip to next
+            // @todo This is probably not the correct way to handle it, should
+            // the exception bubble up? What happens on a 404?
+            $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
+            break;
+        }
+        $found_tp_event = false;
+
+        // Look for match between canvas and tp
+        $leastdiffs = [];
+        foreach ($tp_events as $i => $tp_event) {
+            $diffs = tp_event_equals_canvas_event2($tp_event, $canvas_event_ws, $courseid);
+            if (!count($diffs)) {
+                // No need to update, remove tp_event from array of events
+                unset($tp_events[$i]);
+                $found_tp_event = true;
+                $log->info(
+                    "Event match in TP and Canvas - no update needed",
+                    ['cevent' => cevent2str($canvas_event_ws)]
+                );
+                break;
+            }
+            if (count($diffs)) {
+                // Differences found
+                if (!count($leastdiffs)) {
+                    $leastdiffs = $diffs;
+                }
+                if (count($leastdiffs) > count($diffs)) {
+                    $leastdiffs = $diffs;
+                }
+            }
+        }
+
+        if (!$found_tp_event) {
+            // Nothing matched in tp, this event has been deleted from tp
+            $log->info("Orphaned canvas event, scheduled for deletion", [
+                'cevent' => cevent2str($canvas_event_ws),
+                'leastdiffs' => $leastdiffs
+                ]);
+        }
+    }
+
+    // Add remaining tp-events in canvas
+    foreach ($tp_events as $event) {
+        $log->info("TP event scheduled for canvas", [tpevent2str($event)]);
+    }
+}
+
+#endregion commands
+
+#region utilityfunctions
 
 /**
  * Compare tp_event and canvas_event
@@ -647,121 +1095,6 @@ function add_timetable_to_one_canvas_course(object $canvas_course, array $timeta
     }
 }
 
-/**
- * Diagnose a course
- *
- * @param string $courseid e.g MED3601
- * @param string $canvasid e.g. 1232355
- * @param string $semesterid e.g. 20v
- * @param string $termnr e.g. 1
- * @return void
- */
-function diagnose_course(string $courseid, int $canvasid, string $semesterid, int $termnr): void
-{
-    global $log, $canvasclient, $tpclient;
-
-    // REST call to tp, lookup course
-    try {
-        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
-    } catch (\RuntimeException $e) {
-        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
-        return;
-    }
-
-    if (!$timetable) {
-        $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
-        return;
-    }
-
-    $plenary_timetable = [];
-    if (isset($timetable->data) && isset($timetable->data->plenary)) {
-        $plenary_timetable = $timetable->data->plenary;
-    }
-
-    $group_timetable = [];
-    if (isset($timetable->data) && isset($timetable->data->group)) {
-        $group_timetable = $timetable->data->group;
-    }
-
-    $timetable = $plenary_timetable; // @todo this is oversimplified
-
-    $canvas_course = $canvasclient->courses_get($canvasid);
-    $db_course = CanvasDbCourse::find_or_create((int) $canvas_course->id);
-    $db_course->name = $canvas_course->name;
-    $db_course->course_code = $canvas_course->course_code;
-    $db_course->sis_course_id = $canvas_course->sis_course_id;
-    // Save removed
-
-    // Empty tp-timetable, flush everything in Canvas
-    if (!$timetable) {
-        $log->info("Empty tp timetable! Aborting.\n");
-        return;
-    }
-
-    // put tp-events in array (unnesting)
-    $tp_events = array();
-    foreach ($timetable as $t) {
-        foreach ($t->eventsequences as $eventsequence) {
-            foreach ($eventsequence->events as $event) {
-                $tp_events[] = $event;
-            }
-        }
-    }
-
-    // fetch canvas events found in db
-    foreach ($db_course->canvas_events as $canvas_event_db) {
-        try {
-            // Get the corresponding canvas object
-            $canvas_event_ws = $canvasclient->calendar_events_get($canvas_event_db->canvas_id);
-        } catch (\RuntimeException $e) {
-            // Could not read from Canvas, skip to next
-            // @todo This is probably not the correct way to handle it, should
-            // the exception bubble up? What happens on a 404?
-            $log->error("Could not read calendar from canvas", ['e' => $e, 'event' => $canvas_event_db]);
-            break;
-        }
-        $found_tp_event = false;
-
-        // Look for match between canvas and tp
-        $leastdiffs = [];
-        foreach ($tp_events as $i => $tp_event) {
-            $diffs = tp_event_equals_canvas_event2($tp_event, $canvas_event_ws, $courseid);
-            if (!count($diffs)) {
-                // No need to update, remove tp_event from array of events
-                unset($tp_events[$i]);
-                $found_tp_event = true;
-                $log->info(
-                    "Event match in TP and Canvas - no update needed",
-                    ['cevent' => cevent2str($canvas_event_ws)]
-                );
-                break;
-            }
-            if (count($diffs)) {
-                // Differences found
-                if (!count($leastdiffs)) {
-                    $leastdiffs = $diffs;
-                }
-                if (count($leastdiffs) > count($diffs)) {
-                    $leastdiffs = $diffs;
-                }
-            }
-        }
-
-        if (!$found_tp_event) {
-            // Nothing matched in tp, this event has been deleted from tp
-            $log->info("Orphaned canvas event, scheduled for deletion", [
-                'cevent' => cevent2str($canvas_event_ws),
-                'leastdiffs' => $leastdiffs
-                ]);
-        }
-    }
-
-    // Add remaining tp-events in canvas
-    foreach ($tp_events as $event) {
-        $log->info("TP event scheduled for canvas", [tpevent2str($event)]);
-    }
-}
-
 function cevent2str(object $cevent)
 {
     $date = strtotime($cevent->start_at);
@@ -788,107 +1121,6 @@ function remove_local_courses_missing_from_canvas(array $canvas_courses)
         $local_course = CanvasDbCourse::find($course_id);
         $local_course->remove_all_canvas_events();
         $local_course->delete();
-    }
-}
-
-/**
- * Check for structural changes in canvas courses.
- * Only called explicitly from command line - called in cronjob
- *
- * @param string $semester Semester string "YY[h|v]" e.g "18v"
- * @return void
- */
-function check_canvas_structure_change(string $semester)
-{
-    global $log, $tpclient;
-
-    // Fetch all active courses from TP
-    try {
-        $tp_courses = $tpclient->courses($semester, 1);
-    } catch (\RuntimeException $e) {
-        $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
-        return;
-    }
-
-    // For each course in tp...
-    foreach ($tp_courses->data as $tp_course) {
-        // Create Canvas SIS string
-        $sis_semester = make_sis_semester($semester, $tp_course->terminnr);
-        // Fetch course candidates from Canvas
-        $canvas_courses = fetch_and_clean_canvas_courses($tp_course->id, $semester, $tp_course->terminnr, false);
-        $canvas_courses_ids = array_column($canvas_courses, 'sis_course_id');
-
-        // ? Seems to collect sis_course_id for all courses that we have touched that matches
-        /** @todo verify this like syntax */
-        $local_courses = CanvasDbCourse::findBySisLike("%{$tp_course->id}\\_%\\_{$sis_semester}%");
-        $local_courses = array_column($local_courses, 'sis_course_id');
-
-        // Gather id's that only exist in one of the arrays?
-        $local_diff = array_diff($local_courses, $canvas_courses_ids);
-        $canvas_diff = array_diff($canvas_courses_ids, $local_courses);
-        $diff = array_merge($local_diff, $canvas_diff);
-
-        if ($local_diff) {
-            // Local courses that does not exist in canvas any more
-            remove_local_courses_missing_from_canvas($local_diff);
-            $log->warning('Local course removed from canvas', ['tp_course' => $tp_course, 'semester' => $semester]);
-            /** @todo there used to be a sentry event here as well? */
-        }
-
-        if ($diff) {
-            // Courses in canvas that we have no trace of locally
-            /** @todo should this really have been $canvas_diff ? */
-            update_one_tp_course_in_canvas($tp_course->id, $semester, $tp_course->terminnr);
-            $log->warning('Course changed in canvas and need to update', ['tp_course' => $tp_course, 'semester' => $semester]);
-        }
-    }
-}
-
-/**
- * Update entire semester in Canvas
- *
- * @param string $semester "YY[h|v]" e.g "18v"
- * @return void
- */
-function full_sync(string $semester)
-{
-    global $log, $tpclient;
-
-    $log->info("Starting full sync", ['semester' => $semester]);
-
-    // Fetch all active courses from TP
-    try {
-        $tp_courses = $tpclient->courses($semester, 1);
-    } catch (\RuntimeException $e) {
-        $log->critical("Could not get course list from TP", ['semester' => $semester, 'e' => $e]);
-        return;
-    }
-
-    foreach ($tp_courses->data as $tp_course) {
-        // Stupid thread argument wrapping end
-        $log->info("Updating one course", ['course' => $tp_course]);
-        update_one_tp_course_in_canvas($tp_course->id, $semester, $tp_course->terminnr);
-        /** @todo error handling here? */
-    }
-}
-
-/**
- * Remove events for one tp course from canvas
- * Called explicitly from commandline
- *
- * @param string $courseid
- * @param string $semesterid
- * @param int $termnr
- * @return void
- */
-function remove_one_tp_course_from_canvas(string $courseid, string $semesterid, int $termnr)
-{
-    $sis_semester = make_sis_semester($semesterid, $termnr);
-
-    /** @todo verify this like condition */
-    $courses = CanvasDbCourse::findBySisLike("%{$courseid}\\_%\\_{$sis_semester}%");
-    foreach ($courses as $course) {
-        delete_canvas_events($course);
     }
 }
 
@@ -1064,152 +1296,6 @@ function fetch_and_clean_canvas_courses(
 }
 
 /**
- * Update one course in Canvas
- * This is the function called for change events from rabbitmq. It is also
- * called from check_canvas_structure() (in turn called from cronjob) and
- * full_sync() (for every single active course in tp).
- *
- * @param string $courseid e.g "INF-1100"
- * @param string $semesterid e.g "18v"
- * @param int $termnr
- * @return void
- */
-function update_one_tp_course_in_canvas(string $courseid, string $semesterid, int $termnr)
-{
-    global $log, $tpclient;
-
-    // REST call to tp, lookup course
-    try {
-        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
-    } catch (\RuntimeException $e) {
-        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
-        return;
-    }
-
-    if (!$timetable) {
-        $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
-        return;
-    }
-
-    // Fetch courses from canvas
-    $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
-    if (empty($canvas_courses)) {
-        $log->notice("Found no matching canvas course", ['course' => $courseid, 'semester' => $semesterid, 'termin' => $termnr]);
-        return;
-    }
-
-    if (count($canvas_courses) == 1) { // Only one course in canvas, everything goes in here
-        // Just merge group and plenary to a single array
-        $tdata = [];
-        if (isset($timetable->data)) {
-            if (isset($timetable->data->group)) {
-                $tdata = array_merge($tdata, $timetable->data->group);
-            }
-            if (isset($timetable->data->plenary)) {
-                $tdata = array_merge($tdata, $timetable->data->plenary);
-            }
-        }
-        $course = reset($canvas_courses);
-        $log->debug("Found a 1-1 match", ['course' => $courseid, 'canvas' => $course]);
-        add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
-    } else { // More than one course in Canvas - this is where the UA/UE magic happens
-        // Find UE - several versions of a course might pose a problem here
-        $ue = array_filter($canvas_courses, function (object $course) {
-            if (stripos($course->sis_course_id, 'UE_') === false) {
-                return false;
-            }
-            return true;
-        });
-        if (count($ue)>1) {
-            $log->notice(
-                "More than one UE matched in Canvas",
-                ['course' => $courseid, 'semester' => $semesterid, 'termnr' => $termnr]
-            );
-        }
-        // Find UA
-        $ua = array_filter($canvas_courses, function (object $course) {
-            if (stripos($course->sis_course_id, 'UA_') === false) {
-                return false;
-            }
-            return true;
-        });
-
-        $plenary_timetable = [];
-        if (isset($timetable->data) && isset($timetable->data->plenary)) {
-            $plenary_timetable = $timetable->data->plenary;
-        }
-
-        $group_timetable = [];
-        if (isset($timetable->data) && isset($timetable->data->group)) {
-            $group_timetable = $timetable->data->group;
-        }
-
-        $log->debug("Ready to update multicourse", [
-            'canvas ue' => array_column($ue, 'sis_course_id'),
-            'tp plenary' => array_column($plenary_timetable, 'id'),
-            'canvas ua' => array_column($ua, 'sis_course_id'),
-            'tp group' => array_column($group_timetable, 'id')
-        ]);
-
-        if (count($ue)) {
-            add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable->courseid);
-        }
-
-        if (count($ua)) {
-            add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
-        }
-    }
-}
-
-/**
- * Subscribe to message queue and update when courses change
- * This is what runs as a service
- *
- * @return void
- */
-function queue_subscriber()
-{
-    global $log;
-
-    while (true) {
-        /** @todo there needs to be more error-checking going on here */
-        try {
-            $connection = new PhpAmqpLib\Connection\AMQPStreamConnection(
-                $_SERVER['mq_host'],
-                5672,
-                $_SERVER['mq_user'],
-                $_SERVER['mq_password']
-            );
-            $channel = $connection->channel();
-        } catch (PhpAmqpLib\Exception\AMQPIOException $e) {
-            $log->error("Error connecting to mq host", ['exception' => $e]);
-            sleep(60*5); // 5 minutes wait
-            continue; // Let's try again
-        }
-        /** @todo $channel->prefetch(1) */
-        $channel->exchange_declare($_SERVER['mq_exchange'], 'fanout', false, true, false);
-        list($queue_name, ,) = $channel->queue_declare($_SERVER['mq_queue'], false, true, false, false);
-        $channel->queue_bind($queue_name, $_SERVER['mq_exchange']);
-        $channel->basic_consume($queue_name, '', false, false, false, false, "TpCanvas\\queue_process");
-    
-        while ($channel->is_consuming()) {
-            try {
-                $channel->wait();
-            } catch (PhpAmqpLib\Exception\AMQPProtocolChannelException $e) {
-                $log->error("Protocol Channel Exception", ['exception' => $e]);
-            } catch (PhpAmqpLib\Exception\AMQPConnectionClosedException $e) {
-                $log->error("Connection Closed Exception", ['exception' => $e]);
-            }
-        }
-    
-        $log->info("Main loop cleanup");
-        $channel->close();
-        $connection->close();
-        sleep(5); // 5 seconds grace period before reconnecting
-    }
-}
-
-/**
  * Process a received queue message
  *
  * @param PhpAmqpLib\Message\AMQPMessage $msg Message received.
@@ -1230,7 +1316,7 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
     /** @todo error handling */
-    update_one_tp_course_in_canvas($course['id'], $course['semesterid'], $course['terminnr']);
+    cmd_course($course['id'], $course['semesterid'], $course['terminnr']);
 
     /** @todo Don't ack until processing is verified as successful */
     // Don't ack if dryrun is on
@@ -1238,83 +1324,6 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
         $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
     }
 }
-
-/**
- * Compare production and test, outputting differences
- * @param string $timestamp timestamp for last environment update in ISO-8601 format e.g "2020-01-21T00:00:00"
- */
-function compare_environments(string $timestamp)
-{
-    global $log;
-
-    $canvastest = new CanvasClient('https://uit.test.instructure.com/', $_SERVER['canvas_key']);
-    $canvasprod = new CanvasClient('https://uit.instructure.com/', $_SERVER['canvas_key']);
-    $tpclient = new TPClient($_SERVER['tp_url'], $_SERVER['tp_key'], (int) $_SERVER['tp_institution']);
-    $courselist = $tpclient->lastchangedlist($timestamp);
-    
-    // For each course in our list
-    foreach ($courselist as $course) {
-        // Fetch matches from both environments, filter to courses present in both.
-        if ($course->id == "BOOKING") {
-            // Dunno why TP returns this, skip it...
-            continue;
-        }
-        try {
-            $coursest = fetchCourses($canvastest, $course->id);
-            $coursesp = fetchCourses($canvasprod, $course->id);
-        } catch (RuntimeException $e) {
-            // Abort this course. See if the next is any better.
-            $log->error("Could not fetch Canvas candidates - skipping", ['course' => $course->id, 'exception' => $e]);
-            break;
-        }
-        $courses_not = array_merge(
-            array_diff_key($coursest, $coursesp),
-            array_diff_key($coursesp, $coursest)
-        );
-
-        $courses = array_intersect_key($coursest, $coursesp);
-        if (count($courses_not)) {
-            $log->info("Courses not matching", ['courses' => $courses_not]);
-        }
-        if (empty($courses)) {
-            $log->info("No matching courses", ['course' => $course]);
-            break;
-        }
-        foreach ($courses as $course) {
-            // Fetch all calendar items
-            try {
-                $eventst = $canvastest->calendar_events(['context_codes[]' => "course_{$course->id}"]);
-                $eventsp = $canvasprod->calendar_events(['context_codes[]' => "course_{$course->id}"]);
-            } catch (RuntimeException $e) {
-                // Abort this course. See if the next is any better.
-                $log->error("Could not fetch Canvas events - skipping", [
-                    'course' => $course->sis_course_id,
-                    'exception' => $e
-                ]);
-                break;
-            }
-    
-            foreach ($eventsp as $pkey => $pevent) {
-                foreach ($eventst as $tkey => $tevent) {
-                    if (CanvasClient::eventsEqual($pevent, $tevent)) {
-                        // If equal, remove from both lists
-                        unset($eventst[$tkey]);
-                        unset($eventsp[$pkey]);
-                    }
-                }
-            }
-    
-            if (count($eventst) || count($eventsp)) {
-                $log->info("Differences in course", [
-                    'course' => $course->sis_course_id,
-                    'test' => $eventst,
-                    'prod' => $eventsp
-                ]);
-            }
-        }
-    }
-}
-
 
 function fetchCourses(CanvasClient $canvas, string $search)
 {
@@ -1344,3 +1353,5 @@ function fetchCourses(CanvasClient $canvas, string $search)
     $courses = array_combine($coursesids, $courses);
     return $courses;
 }
+
+#endregion utilityfunctions
