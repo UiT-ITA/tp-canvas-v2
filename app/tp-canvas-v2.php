@@ -24,51 +24,48 @@ if (!isset($argv[1])) {
     $argv[1] = '';
 }
 
+$argnums = [
+    'semester' => 1,
+    'course' => 3,
+    'removecourse' => 3,
+    'mq' => 0,
+    'canvasdiff' => 1,
+    'compareenvironments' => 1,
+    'diagnosecourse' => 4,
+    'deleteevent' => 1
+];
+
+if (isset($argnums[$argv[1]])) {
+    if (count($argv) != ($argnums[$argv[1]] + 2)) {
+        echo "Error: Wrong number of arguments!\n";
+        exit;
+    }
+}
+
 switch ($argv[1]) {
     case 'semester':
-        if (!isset($argv[2])) {
-            echo "Error: Missing arguments!\n";
-            return;
-        }
         cmd_semester($argv[2]);
         break;
     case 'course':
-        if (!isset($argv[2], $argv[3], $argv[4])) {
-            echo "Error: Missing arguments!\n";
-            return;
-        }
         cmd_course($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'removecourse':
-        if (!isset($argv[2], $argv[3], $argv[4])) {
-            echo "Error: Missing arguments!\n";
-            return;
-        }
         cmd_removecourse($argv[2], $argv[3], (int) $argv[4]);
         break;
     case 'mq':
         cmd_mq();
         break;
     case 'canvasdiff':
-        if (!isset($argv[2])) {
-            echo "Error: Missing arguments!\n";
-            return;
-        }
         cmd_canvasdiff($argv[2]);
         break;
     case 'compareenvironments':
-        if (!isset($argv[2])) {
-            echo "Error: Missing arguments!\n";
-            return;
-        }
         cmd_compareenvironments($argv[2]);
         break;
     case 'diagnosecourse':
-        if (!isset($argv[2], $argv[3], $argv[4], $argv[5])) {
-            echo "Error: Missing arguments!\n";
-            return;
-        }
         cmd_diagnosecourse($argv[2], (int) $argv[3], $argv[4], (int) $argv[5]);
+        break;
+    case 'deleteevent':
+        cmd_deleteevent((int) $argv[2]);
         break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
@@ -80,6 +77,7 @@ switch ($argv[1]) {
         echo "  Check for Canvas change: canvasdiff 18h\n";
         echo "  Compare prod and test: compareenvironments 2020-01-21T00:00:00\n";
         echo "  Diagnose a course: diagnosecourse MED-3601 123456 20v 1\n";
+        echo "  Delete a single Canvas event: deleteevent 12345\n";
         break;
 }
 exit;
@@ -526,6 +524,35 @@ function cmd_diagnosecourse(string $courseid, int $canvasid, string $semesterid,
     }
 }
 
+/**
+ * Delete a single canvas event
+ *
+ * @param int $canvas_event_id
+ * @return void
+ */
+function cmd_deleteevent(int $canvas_event_id):void
+{
+    global $log, $canvasclient;
+
+    // Check if we have records of the event. We might, or might not care.
+    $dbevent = CanvasDbEvent::getFromCanvasId($canvas_event_id);
+    if (!$dbevent) {
+        $log->error("Event not found in database!", ['id' => $canvas_event_id]);
+        // We create a fake event
+        $dbevent = new CanvasDbEvent();
+        $dbevent->canvas_id = $canvas_event_id;
+        // @todo This is a dirty hack, do better.
+    }
+
+    // Delete event from canvas
+    $deleted = delete_canvas_event($dbevent);
+    if (!$deleted) {
+        $log->error("Event was not deleted", ['event' => $dbevent]);
+        return;
+    }
+    $log->info("Event was allegedly deleted", ['event' => $dbevent]);
+}
+
 #endregion commands
 
 #region utilityfunctions
@@ -617,7 +644,7 @@ function tp_event_equals_canvas_event(object $tp_event, object $canvas_event, st
 }
 
 /**
- * Compare tp_event and canvas_event
+ * Compare tp_event and canvas_event, returning all differences
  * Check for changes in title, location, start-date, end-date, staff and recording tag
  *
  * @param object $tp_event event from tp-ws
@@ -928,6 +955,7 @@ function delete_canvas_event(CanvasDbEvent $event): bool
 
     try {
         $response = $canvasclient->calendar_events_delete($event->canvas_id);
+        $log->debug("Deletion", ['response' => $response]);
     } catch (GuzzleHttp\Exception\ClientException $e) {
         if ($e->getResponse()->getStatusCode() == 404) {
             // Event not found in Canvas, let's just forget about it
@@ -946,7 +974,6 @@ function delete_canvas_event(CanvasDbEvent $event): bool
             if ($response->workflow_state == 'deleted') {
                 // Is the event deleted in canvas?
                 $event->delete();
-                /** @todo This is not optimal, it leaves a shadow event in Canvas that can't be manipulated normally */
                 $log->warning("Event marked as deleted in Canvas", ['event' => $event]);
                 return true;
             }

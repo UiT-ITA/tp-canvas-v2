@@ -41,7 +41,6 @@ docker rmi tp-canvas-v2 ; docker build --no-cache --tag tp-canvas-v2 .
 
 Docker run:
 ```
-docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run tp-canvas-v2
 ```
 
 Oneliner for developing:

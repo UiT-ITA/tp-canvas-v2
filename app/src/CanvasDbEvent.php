@@ -23,6 +23,23 @@ class CanvasDbEvent
     }
 
     /**
+     * Find event by canvas id
+     *
+     * @param integer $canvasid
+     */
+    public static function getFromCanvasId(int $canvasid): ?CanvasDbEvent
+    {
+        global $pdoclient;
+        $stmt = $pdoclient->prepare("SELECT * FROM canvas_events WHERE canvas_id = ?");
+        $stmt->execute(array($canvasid));
+        $result = $stmt->fetchObject('TpCanvas\\CanvasDbEvent');
+        if (!$result) {
+            return null;
+        }
+        return $result;
+    }
+
+    /**
      * Find all events linked to a given Canvas course id
      *
      * @param integer $canvascourseid Canvas course id to search for
@@ -49,6 +66,9 @@ class CanvasDbEvent
     {
         if ($_SERVER['dryrun'] == 'on') {
             return true;
+        }
+        if (!isset($this->id)) { // We don't exist in the database. Nothing to delete.
+            return false;
         }
         $stmt = $this->pdoclient->prepare("DELETE FROM canvas_events WHERE id = ?");
         return $stmt->execute(array($this->id));
