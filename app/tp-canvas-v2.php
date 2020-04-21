@@ -1288,39 +1288,40 @@ function fetch_and_clean_canvas_courses(
             }
             return true;
         });
-    } else {
-        // Create array of all valid sis semester combos for this course
-        $combos = [];
-        $semnr = string_to_semnr($semesterid);
-        $csemnr = $semnr;
-        $cterm = intval($termnr);
-        while ($cterm > 0) {
-            $semnrstring = semnr_to_string($csemnr);
-            $combonew = make_sis_semester($semnrstring, $cterm);
-            $combos[] = $combonew;
-            $csemnr -= 0.5;
-            $cterm -= 1;
-        }
-
-        // Remove wrong course ids
-        $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid) {
-            if (!isset($course->sis_course_id)) {
-                return false;
-            }
-            if (is_null($course->sis_course_id)) {
-                return false;
-            }
-            if (stripos($course->sis_course_id, "_{$courseid}_") === false) {
-                return false;
-            }
-            return true;
-        });
-        // Remove courses that does not matchy any of our semester combos
-        $canvas_courses = array_filter($canvas_courses, function (object $course) use ($combos) {
-            global $log;
-            return haystack_needles($course->sis_course_id, $combos);
-        });
+        return $canvas_courses;
     }
+
+    // Create array of all valid sis semester combos for this course
+    $combos = [];
+    $semnr = string_to_semnr($semesterid);
+    $csemnr = $semnr;
+    $cterm = intval($termnr);
+    while ($cterm > 0) {
+        $semnrstring = semnr_to_string($csemnr);
+        $combonew = make_sis_semester($semnrstring, $cterm);
+        $combos[] = $combonew;
+        $csemnr -= 0.5;
+        $cterm -= 1;
+    }
+
+    // Remove wrong course ids
+    $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid) {
+        if (!isset($course->sis_course_id)) {
+            return false;
+        }
+        if (is_null($course->sis_course_id)) {
+            return false;
+        }
+        if (stripos($course->sis_course_id, "_{$courseid}_") === false) {
+            return false;
+        }
+        return true;
+    });
+    // Remove courses that does not matchy any of our semester combos
+    $canvas_courses = array_filter($canvas_courses, function (object $course) use ($combos) {
+        global $log;
+        return haystack_needles($course->sis_course_id, $combos);
+    });
     return $canvas_courses;
 }
 
