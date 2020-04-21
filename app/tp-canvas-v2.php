@@ -11,6 +11,7 @@ require_once "global.php";
 use PHPHtmlParser;
 use PhpAmqpLib;
 use GuzzleHttp;
+use \Exception;
 
 #region main
 
@@ -18,6 +19,7 @@ $log->info("Starting run");
 
 $canvasclient = new CanvasClient($_SERVER['canvas_url'], $_SERVER['canvas_key']);
 $tpclient = new TPClient($_SERVER['tp_url'], $_SERVER['tp_key'], (int) $_SERVER['tp_institution']);
+$canvas = new Canvas($canvasclient, $log);
 $pdoclient = new \PDO($_SERVER['db_dsn'], $_SERVER['db_user'], $_SERVER['db_password']);
 
 if (!isset($argv[1])) {
@@ -32,7 +34,7 @@ $argnums = [
     'canvasdiff' => 1,
     'compareenvironments' => 1,
     'diagnosecourse' => 4,
-    'deleteevent' => 1
+    'deleteevent' => 2
 ];
 
 if (isset($argnums[$argv[1]])) {
@@ -65,7 +67,7 @@ switch ($argv[1]) {
         cmd_diagnosecourse($argv[2], (int) $argv[3], $argv[4], (int) $argv[5]);
         break;
     case 'deleteevent':
-        cmd_deleteevent((int) $argv[2]);
+        cmd_deleteevent((int) $argv[2], (int) $argv[3]);
         break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
@@ -77,7 +79,7 @@ switch ($argv[1]) {
         echo "  Check for Canvas change: canvasdiff 18h\n";
         echo "  Compare prod and test: compareenvironments 2020-01-21T00:00:00\n";
         echo "  Diagnose a course: diagnosecourse MED-3601 123456 20v 1\n";
-        echo "  Delete a single Canvas event: deleteevent 12345\n";
+        echo "  Delete a single Canvas event: deleteevent 123 12345\n";
         break;
 }
 exit;
@@ -530,26 +532,26 @@ function cmd_diagnosecourse(string $courseid, int $canvasid, string $semesterid,
  * @param int $canvas_event_id
  * @return void
  */
-function cmd_deleteevent(int $canvas_event_id):void
+function cmd_deleteevent(int $courseid, int $eventid):void
 {
-    global $log, $canvasclient;
+    global $log, $canvasclient, $canvas;
 
-    // Check if we have records of the event. We might, or might not care.
-    $dbevent = CanvasDbEvent::getFromCanvasId($canvas_event_id);
-    if (!$dbevent) {
-        $log->error("Event not found in database!", ['id' => $canvas_event_id]);
-        // We create a fake event
-        $dbevent = new CanvasDbEvent();
-        $dbevent->canvas_id = $canvas_event_id;
-        // @todo This is a dirty hack, do better.
-    }
-
-    // Delete event from canvas
-    $deleted = delete_canvas_event($dbevent);
-    if (!$deleted) {
-        $log->error("Event was not deleted", ['event' => $dbevent]);
+    try {
+        unset($canvas->accounts[1]->courses[$courseid]->calendarevents[$eventid]);
+    } catch (Exception $e) {
+        // If Canvas failed, we abort
+        $log->error("Failed to delete event", ['id' => $eventid, 'exception' => $e]);
         return;
     }
+
+    // Check if we have records of the event. We might, or might not care.
+    $dbevent = CanvasDbEvent::getFromCanvasId($eventid);
+    if (!$dbevent) {
+        $log->error("Event not found in database!", ['id' => $eventid]);
+        return;
+    }
+
+    $dbevent->delete();
     $log->info("Event was allegedly deleted", ['event' => $dbevent]);
 }
 
