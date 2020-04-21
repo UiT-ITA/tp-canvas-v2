@@ -766,12 +766,12 @@ function add_event_to_canvas(object $event, object $db_course, string $courseid,
 
     /** @todo There used to be a test here for 201  */
     // Save to database if ok
-        $db_event = new CanvasDbEvent();
-        $db_event->canvas_id = $response->id;
-        $db_event->canvas_course_id = $canvas_course_id;
-        $db_event->save();
-        $log->debug("Event created in Canvas", ['event' => $event]);
-        return true;
+    $db_event = new CanvasDbEvent();
+    $db_event->canvas_id = $response->id;
+    $db_event->canvas_course_id = $canvas_course_id;
+    $db_event->save();
+    $log->debug("Event created in Canvas", ['event' => $event]);
+    return true;
 }
 
 /**
