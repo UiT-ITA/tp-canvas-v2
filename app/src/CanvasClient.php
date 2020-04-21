@@ -31,6 +31,17 @@ class CanvasClient extends RESTClient
     }
 
     /**
+     * Get single account
+     * @param int $accountid account id
+     * @return array accounts
+     */
+    public function account(int $accountid): object
+    {
+        $response = $this->get("accounts/{$accountid}");
+        return (self::responseToNative($response));
+    }
+
+    /**
      * List accounts
      * @return array accounts
      */
