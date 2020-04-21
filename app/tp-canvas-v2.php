@@ -165,52 +165,54 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
         $course = reset($canvas_courses);
         $log->debug("Found a 1-1 match", ['course' => $courseid, 'canvas' => $course]);
         add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
-    } else { // More than one course in Canvas - this is where the UA/UE magic happens
-        // Find UE - several versions of a course might pose a problem here
-        $ue = array_filter($canvas_courses, function (object $course) {
-            if (stripos($course->sis_course_id, 'UE_') === false) {
-                return false;
-            }
-            return true;
-        });
-        if (count($ue)>1) {
-            $log->notice(
-                "More than one UE matched in Canvas",
-                ['course' => $courseid, 'semester' => $semesterid, 'termnr' => $termnr]
-            );
-        }
-        // Find UA
-        $ua = array_filter($canvas_courses, function (object $course) {
-            if (stripos($course->sis_course_id, 'UA_') === false) {
-                return false;
-            }
-            return true;
-        });
+        return;
+    }
 
-        $plenary_timetable = [];
-        if (isset($timetable->data) && isset($timetable->data->plenary)) {
-            $plenary_timetable = $timetable->data->plenary;
+    // More than one course in Canvas - this is where the UA/UE magic happens
+    // Find UE - several versions of a course might pose a problem here
+    $ue = array_filter($canvas_courses, function (object $course) {
+        if (stripos($course->sis_course_id, 'UE_') === false) {
+            return false;
         }
-
-        $group_timetable = [];
-        if (isset($timetable->data) && isset($timetable->data->group)) {
-            $group_timetable = $timetable->data->group;
+        return true;
+    });
+    if (count($ue)>1) {
+        $log->notice(
+            "More than one UE matched in Canvas",
+            ['course' => $courseid, 'semester' => $semesterid, 'termnr' => $termnr]
+        );
+    }
+    // Find UA
+    $ua = array_filter($canvas_courses, function (object $course) {
+        if (stripos($course->sis_course_id, 'UA_') === false) {
+            return false;
         }
+        return true;
+    });
 
-        $log->debug("Ready to update multicourse", [
-            'canvas ue' => array_column($ue, 'sis_course_id'),
-            'tp plenary' => array_column($plenary_timetable, 'id'),
-            'canvas ua' => array_column($ua, 'sis_course_id'),
-            'tp group' => array_column($group_timetable, 'id')
-        ]);
+    $plenary_timetable = [];
+    if (isset($timetable->data) && isset($timetable->data->plenary)) {
+        $plenary_timetable = $timetable->data->plenary;
+    }
 
-        if (count($ue)) {
-            add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable->courseid);
-        }
+    $group_timetable = [];
+    if (isset($timetable->data) && isset($timetable->data->group)) {
+        $group_timetable = $timetable->data->group;
+    }
 
-        if (count($ua)) {
-            add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
-        }
+    $log->debug("Ready to update multicourse", [
+        'canvas ue' => array_column($ue, 'sis_course_id'),
+        'tp plenary' => array_column($plenary_timetable, 'id'),
+        'canvas ua' => array_column($ua, 'sis_course_id'),
+        'tp group' => array_column($group_timetable, 'id')
+    ]);
+
+    if (count($ue)) {
+        add_timetable_to_one_canvas_course(reset($ue), $plenary_timetable, $timetable->courseid);
+    }
+
+    if (count($ua)) {
+        add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
     }
 }
 
