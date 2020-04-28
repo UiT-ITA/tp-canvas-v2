@@ -147,11 +147,16 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
     // Fetch courses from canvas
     $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
     if (empty($canvas_courses)) {
-        $log->notice("Found no matching canvas course", ['course' => $courseid, 'semester' => $semesterid, 'termin' => $termnr]);
+        $log->notice("Found no matching canvas course", [
+            'course' => $courseid,
+            'semester' => $semesterid,
+            'termin' => $termnr
+        ]);
         return;
     }
 
     if (count($canvas_courses) == 1) { // Only one course in canvas, everything goes in here
+        // This only triggers the first year a course is used
         // Just merge group and plenary to a single array
         $tdata = [];
         if (isset($timetable->data)) {
