@@ -1386,27 +1386,28 @@ function fetchTPSchedule(string $courseid, string $semesterid, int $termnr): ?ob
     for ($term = $firstterm; $term <= $lastterm; $term++) {
         try {
             $timetable = $tpclient->schedule(semnr_to_string($thissemnr), $courseid, $term);
-            if (is_null($schedule)) {
-                // First timetable, grab as is
-                $schedule = $timetable;
-                if (is_null($schedule->data)) {
-                    $schedule->data = [];
-                }
-            } else {
-                // Consecutive timetables, merge activities
-                if (!is_null($timetable->data)) {
-                    $timetable_categories = \get_object_vars($timetable->data);
-                    foreach ($timetable_categories as $key => $value) {
-                        if (!isset($schedule->data->{$key})) {
-                            $schedule->data->{$key} = [];
-                        }
-                        $schedule->data->{$key} = array_merge($schedule->data->{$key}, $value);
-                    }
-                }
-            }
         } catch (\RuntimeException $e) {
             $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
             return null;
+        }
+        if (is_null($schedule)) {
+            // First timetable, grab as is
+            $schedule = $timetable;
+            if (is_null($schedule->data)) {
+                $schedule->data = [];
+            }
+            $thissemnr += 0.5;
+            continue;
+        }
+        // Consecutive timetables, merge activities
+        if (!is_null($timetable->data)) {
+            $timetable_categories = \get_object_vars($timetable->data);
+            foreach ($timetable_categories as $key => $value) {
+                if (!isset($schedule->data->{$key})) {
+                    $schedule->data->{$key} = [];
+                }
+                $schedule->data->{$key} = array_merge($schedule->data->{$key}, $value);
+            }
         }
         $thissemnr += 0.5;
     }
