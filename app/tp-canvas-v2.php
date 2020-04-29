@@ -1294,7 +1294,7 @@ function fetch_and_clean_canvas_courses(
  */
 function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 {
-    global $log;
+    global $log, $changelist;
 
     $course = json_decode($msg->body, true);
 
@@ -1312,6 +1312,14 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
         return;
     }
 
+    if ($changelist->check($course['id'], $course['lastchanged'])) {
+        // Ignore changes that happened before our last update
+        $log->debug("Skipping because course already updated after time of change", ['message' => $msg]);
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+        return;
+    }
+
+    $changetime = date('c'); // Timestamp before when processing starts
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
     /** @todo error handling */
