@@ -15,7 +15,7 @@ class CanvasCalendareventCollection extends CanvasCollection
     /*
     * Constructor
     * @param CanvasClient $canvasclient Canvas REST client
-    * @param Loggerinterface $logger Canvas API key
+    * @param Loggerinterface $logger Logger object
     * @param CanvasAccount $account The account we want to iterate over
     * @return void
     */

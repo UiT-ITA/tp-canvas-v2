@@ -48,7 +48,7 @@ abstract class CanvasCollection implements \SeekableIterator, \ArrayAccess
     /*
     * Constructor
     * @param CanvasClient $canvasclient Canvas REST client
-    * @param Loggerinterface $logger Canvas API key
+    * @param Loggerinterface $logger Logger object
     * @return void
     */
     public function __construct(CanvasClient $canvasclient, Loggerinterface $logger)

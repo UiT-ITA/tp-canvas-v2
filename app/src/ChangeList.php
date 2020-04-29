@@ -15,7 +15,7 @@ class ChangeList
 
     /*
     * Constructor
-    * @param Loggerinterface $logger Canvas API key
+    * @param Loggerinterface $logger
     * @return void
     */
     public function __construct(Loggerinterface $logger)

@@ -1,9 +1,10 @@
 ## Backlog(ish)
 
-- [ ] Static list of last updated courses with timestamp, filter incoming events 
-- [ ] Stop using globals
+- [ ] Rewrite cmd_course for Canvas proxy library
 - [ ] Support Canvas sections
+- [ ] Remove database usage (?)
 - [ ] Implement unit tests
+- [x] Static list of last updated courses with timestamp, filter incoming events 
 - [x] Filter incoming events on maxsem
 - [x] Use Sentry
 - [x] Add multiple monolog handlers
