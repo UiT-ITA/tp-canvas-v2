@@ -125,9 +125,9 @@ function cmd_semester(string $semester)
  * @param string $courseid e.g "INF-1100"
  * @param string $semesterid e.g "18v"
  * @param int $termnr
- * @return void
+ * @return bool operation ok (if not, retry)
  */
-function cmd_course(string $courseid, string $semesterid, int $termnr)
+function cmd_course(string $courseid, string $semesterid, int $termnr): bool
 {
     global $log;
 
@@ -135,7 +135,7 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
 
     if (!$timetable) {
         $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
-        return;
+        return false;
     }
 
     // Fetch courses from canvas
@@ -146,7 +146,8 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
             'semester' => $semesterid,
             'termin' => $termnr
         ]);
-        return;
+        // This is ok, a lot of courses don't exist in Canvas
+        return true;
     }
 
     if (count($canvas_courses) == 1) { // Only one course in canvas, everything goes in here
@@ -164,7 +165,7 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
         $course = reset($canvas_courses);
         $log->debug("Found a 1-1 match", ['course' => $courseid, 'canvas' => $course]);
         add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
-        return;
+        return true;
     }
 
     // More than one course in Canvas - this is where the UA/UE magic happens
@@ -213,6 +214,7 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
     if (count($ua)) {
         add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
     }
+    return true;
 }
 
 /**
@@ -1299,18 +1301,29 @@ function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
     if (strpos($course['id'], 'BOOKING') !== false || strpos($course['id'], 'EKSAMEN') !== false) {
         // Ignore BOOKING and EKSAMEN messages
         $log->debug("Skipping because of type", ['message' => $msg]);
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+        return;
+    }
+
+    if (!verifySem($course['semesterid'])) {
+        // Ignore future semesters
+        $log->debug("Skipping because of future semester", ['message' => $msg]);
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
         return;
     }
 
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
     /** @todo error handling */
-    cmd_course($course['id'], $course['semesterid'], $course['terminnr']);
+    $result = cmd_course($course['id'], $course['semesterid'], $course['terminnr']);
 
-    /** @todo Don't ack until processing is verified as successful */
-    // Don't ack if dryrun is on
-    if ($_SERVER['dryrun'] != 'on') {
-        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+    if ($result) {
+        // If processing succeeded
+        $changelist->set($course['id'], $changetime);
+        if ($_SERVER['dryrun'] != 'on') {
+            // If dryrun isn't on
+            $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+        }
     }
 }
 
