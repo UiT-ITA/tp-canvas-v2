@@ -15,7 +15,7 @@ class CanvasCalendarevent extends CanvasObject
     /*
     * Constructor
     * @param CanvasClient $canvasclient Canvas REST client
-    * @param Loggerinterface $logger Canvas API key
+    * @param Loggerinterface $logger Logger object
     * @param object $sourceobject The source object to base this object on
     * @return void
     */

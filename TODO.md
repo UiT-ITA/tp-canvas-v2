@@ -1,15 +1,17 @@
-## Before v1.0
+## Backlog(ish)
 
+- [ ] Rewrite cmd_course for Canvas proxy library
+- [ ] Support Canvas sections
+- [ ] Remove database usage (?)
+- [ ] Implement unit tests
+- [x] Static list of last updated courses with timestamp, filter incoming events 
+- [x] Filter incoming events on maxsem
 - [x] Use Sentry
 - [x] Add multiple monolog handlers
 - [x] Rewrite direct REST calls in code to use webservice wrappers
 - [x] Add dry-run mode !!!
 - [x] Dry-run should not ack messages!
 
-## After v1.0 (long term wishlist)
-
-- [ ] Timestamp courses in database with "last updated", and check against incoming amqp messages
-- [ ] Stop using globals
-- [ ] Support Canvas sections
-- [ ] Only sync current term (makes larger changes between terms easier)
-- [ ] Implement unit tests
+## Important post-launch todolist:
+- [ ] Add canvas-diff to crontab
+- [ ] Add autostart

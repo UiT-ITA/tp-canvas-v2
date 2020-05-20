@@ -129,34 +129,29 @@ function cmd_semester(string $semester)
  * @param string $courseid e.g "INF-1100"
  * @param string $semesterid e.g "18v"
  * @param int $termnr
- * @return void
+ * @return bool operation ok (if not, retry)
  */
-function cmd_course(string $courseid, string $semesterid, int $termnr)
+function cmd_course(string $courseid, string $semesterid, int $termnr): bool
 {
-    global $log, $tpclient;
+    global $log;
 
-    // REST call to tp, lookup course
-    try {
-        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
-    } catch (\RuntimeException $e) {
-        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
-        return;
-    }
+    $timetable = fetchTPSchedule($courseid, $semesterid, $termnr);
 
     if (!$timetable) {
         $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
-        return;
+        return false;
     }
 
     // Fetch courses from canvas
-    $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr, false);
+    $canvas_courses = fetch_and_clean_canvas_courses($courseid, $semesterid, $termnr);
     if (empty($canvas_courses)) {
         $log->notice("Found no matching canvas course", [
             'course' => $courseid,
             'semester' => $semesterid,
             'termin' => $termnr
         ]);
-        return;
+        // This is ok, a lot of courses don't exist in Canvas
+        return true;
     }
 
     if (count($canvas_courses) == 1) { // Only one course in canvas, everything goes in here
@@ -174,7 +169,7 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
         $course = reset($canvas_courses);
         $log->debug("Found a 1-1 match", ['course' => $courseid, 'canvas' => $course]);
         add_timetable_to_one_canvas_course($course, $tdata, $timetable->courseid);
-        return;
+        return true;
     }
 
     // More than one course in Canvas - this is where the UA/UE magic happens
@@ -223,6 +218,7 @@ function cmd_course(string $courseid, string $semesterid, int $termnr)
     if (count($ua)) {
         add_timetable_to_canvas($ua, $group_timetable, $timetable->courseid);
     }
+    return true;
 }
 
 /**
@@ -317,7 +313,7 @@ function cmd_canvasdiff(string $semester)
         // Create Canvas SIS string
         $sis_semester = make_sis_semester($semester, $tp_course->terminnr);
         // Fetch course candidates from Canvas
-        $canvas_courses = fetch_and_clean_canvas_courses($tp_course->id, $semester, $tp_course->terminnr, false);
+        $canvas_courses = fetch_and_clean_canvas_courses($tp_course->id, $semester, $tp_course->terminnr);
         $canvas_courses_ids = array_column($canvas_courses, 'sis_course_id');
 
         // ? Seems to collect sis_course_id for all courses that we have touched that matches
@@ -433,15 +429,9 @@ function cmd_compareenvironments(string $timestamp)
  */
 function cmd_diagnosecourse(string $courseid, int $canvasid, string $semesterid, int $termnr): void
 {
-    global $log, $canvasclient, $tpclient;
+    global $log, $canvasclient;
 
-    // REST call to tp, lookup course
-    try {
-        $timetable = $tpclient->schedule($semesterid, $courseid, $termnr);
-    } catch (\RuntimeException $e) {
-        $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
-        return;
-    }
+    $timetable = fetchTPSchedule($courseid, $semesterid, $termnr);
 
     if (!$timetable) {
         $log->error("Course not found in TP", ['courseid' => $courseid, 'semester' => $semesterid, 'term' => $termnr]);
@@ -1279,6 +1269,9 @@ function make_sis_course_id(string $courseid, string $semesterid, int $termnr): 
  */
 function make_sis_semester(string $semesterid, int $termnr): string
 {
+    // First convert to first term of course, since that is what Canvas uses
+    list ($semesterid, $termnr) = firstSem($semesterid, $termnr);
+
     $semesteryear = substr($semesterid, 0, 2);
     $sis_semester = "20{$semesteryear}_VÅR_{$termnr}";
     if (strtoupper(substr($semesterid, -1)) == "H") {
@@ -1305,7 +1298,7 @@ function haystack_needles(string $haystack, array $needles): bool
 }
 
 /** Semnr to semstring
- * This converts decimal numeric representation of a semester to a string.
+ * This converts decimal numeric representation of a semester to string representation
  *
  * @param float $semnr Numerical representation of a semester (e.g 18.5)
  * @return string String representation of a semester (e.g "18h")
@@ -1313,7 +1306,7 @@ function haystack_needles(string $haystack, array $needles): bool
 function semnr_to_string(float $semnr): string
 {
     $sem = 'h';
-    if ($semnr % 2 == 0) {
+    if (($semnr - (int) $semnr) == 0) { // .0 is vår
         $sem = 'v';
     }
     $semyear = intval($semnr);
@@ -1321,7 +1314,7 @@ function semnr_to_string(float $semnr): string
 }
 
 /** semstring to semnr
- * This converts decimal numeric representation of a semester to a string
+ * This converts string representation of a semester to a decimal numeric representation
  *
  * @param string $semstring String representation of a semester (e.g "18h")
  * @return float Numerical representation of a semester (e.g "18.5")
@@ -1338,7 +1331,7 @@ function string_to_semnr(string $semstring): float
 }
 
 /**
- * Fetch canvas courses crom webservice, removing wrong semester and wrong courseid
+ * Fetch canvas courses from webservice, removing wrong semester and wrong courseid
  *
  * @param string $courseid 'INF-1100'
  * @param string $semesterid '18v'
@@ -1351,8 +1344,7 @@ function string_to_semnr(string $semstring): float
 function fetch_and_clean_canvas_courses(
     string $courseid,
     string $semesterid,
-    int $termnr,
-    bool $exact = true
+    int $termnr
 ): array {
     global $log, $canvasclient;
     // Fetch Canvas courses
@@ -1363,47 +1355,14 @@ function fetch_and_clean_canvas_courses(
         $log->error("Unable to read paginated course list", [$e]);
         return array();
     }
-    if ($exact) {
-        // Remove all with wrong semester and wrong courseid
-        $sis_semester = make_sis_semester($semesterid, $termnr);
-        /* Keep courses that fills all criterias:
-            1. Has a sis_course_id (if not, it's not from FS)
-            2. sis_course_id contains our course id as an element
-            3. sis_course_id contains our semester
-        */
-        $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid, $sis_semester) {
-            if (!isset($course->sis_course_id)) {
-                return false;
-            }
-            if (is_null($course->sis_course_id)) {
-                return false;
-            }
-            if (stripos($course->sis_course_id, "_{$courseid}_") === false) {
-                return false;
-            }
-            if (stripos($course->sis_course_id, $sis_semester) === false) {
-                return false;
-            }
-            return true;
-        });
-        return $canvas_courses;
-    }
-
-    // Create array of all valid sis semester combos for this course
-    $combos = [];
-    $semnr = string_to_semnr($semesterid);
-    $csemnr = $semnr;
-    $cterm = intval($termnr);
-    while ($cterm > 0) {
-        $semnrstring = semnr_to_string($csemnr);
-        $combonew = make_sis_semester($semnrstring, $cterm);
-        $combos[] = $combonew;
-        $csemnr -= 0.5;
-        $cterm -= 1;
-    }
-
-    // Remove wrong course ids
-    $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid) {
+    // Remove all with wrong semester and wrong courseid
+    $sis_semester = make_sis_semester($semesterid, $termnr);
+    /* Keep courses that fills all criterias:
+        1. Has a sis_course_id (if not, it's not from FS)
+        2. sis_course_id contains our course id as an element
+        3. sis_course_id contains our semester
+    */
+    $canvas_courses = array_filter($canvas_courses, function (object $course) use ($courseid, $sis_semester) {
         if (!isset($course->sis_course_id)) {
             return false;
         }
@@ -1413,12 +1372,10 @@ function fetch_and_clean_canvas_courses(
         if (stripos($course->sis_course_id, "_{$courseid}_") === false) {
             return false;
         }
+        if (stripos($course->sis_course_id, $sis_semester) === false) {
+            return false;
+        }
         return true;
-    });
-    // Remove courses that does not matchy any of our semester combos
-    $canvas_courses = array_filter($canvas_courses, function (object $course) use ($combos) {
-        global $log;
-        return haystack_needles($course->sis_course_id, $combos);
     });
     return $canvas_courses;
 }
@@ -1431,25 +1388,44 @@ function fetch_and_clean_canvas_courses(
  */
 function queue_process(PhpAmqpLib\Message\AMQPMessage $msg)
 {
-    global $log;
+    global $log, $changelist;
 
     $course = json_decode($msg->body, true);
 
     if (strpos($course['id'], 'BOOKING') !== false || strpos($course['id'], 'EKSAMEN') !== false) {
         // Ignore BOOKING and EKSAMEN messages
         $log->debug("Skipping because of type", ['message' => $msg]);
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
         return;
     }
 
+    if (!verifySem($course['semesterid'])) {
+        // Ignore future semesters
+        $log->debug("Skipping because of future semester", ['message' => $msg]);
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+        return;
+    }
+
+    if ($changelist->check($course['id'], $course['lastchanged'])) {
+        // Ignore changes that happened before our last update
+        $log->debug("Skipping because course already updated after time of change", ['message' => $msg]);
+        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+        return;
+    }
+
+    $changetime = date('c'); // Timestamp before when processing starts
     $log->info("Message received from RabbitMQ", ['message' => $msg]);
 
     /** @todo error handling */
-    cmd_course($course['id'], $course['semesterid'], $course['terminnr']);
+    $result = cmd_course($course['id'], $course['semesterid'], $course['terminnr']);
 
-    /** @todo Don't ack until processing is verified as successful */
-    // Don't ack if dryrun is on
-    if ($_SERVER['dryrun'] != 'on') {
-        $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+    if ($result) {
+        // If processing succeeded
+        $changelist->set($course['id'], $changetime);
+        if ($_SERVER['dryrun'] != 'on') {
+            // If dryrun isn't on
+            $msg->delivery_info['channel']->basic_ack($msg->delivery_info['delivery_tag']);
+        }
     }
 }
 
@@ -1480,6 +1456,111 @@ function fetchCourses(CanvasClient $canvas, string $search)
     }, $courses);
     $courses = array_combine($coursesids, $courses);
     return $courses;
+}
+
+/**
+ * Fetch the entire (relevant) schedule for a course from TP
+ *
+ * @param string $courseid
+ * @param string $semesterid
+ * @param integer $termnr
+ * @return object The TP object of first semester with all consecutive merged in
+ */
+function fetchTPSchedule(string $courseid, string $semesterid, int $termnr): ?object
+{
+    global $tpclient, $log;
+
+    $schedule = null;
+
+    list ($firstsem, $firstterm) = firstSem($semesterid, $termnr);
+    list ($lastsem, $lastterm) = lastSem($semesterid, $termnr);
+
+    $thissemnr = string_to_semnr($firstsem);
+
+    for ($term = $firstterm; $term <= $lastterm; $term++) {
+        try {
+            $timetable = $tpclient->schedule(semnr_to_string($thissemnr), $courseid, $term);
+        } catch (\RuntimeException $e) {
+            $log->critical("Could not get timetable from TP", ['courseid' => $courseid, 'e' => $e]);
+            return null;
+        }
+        if (is_null($schedule)) {
+            // First timetable, grab as is
+            $schedule = $timetable;
+            if (is_null($schedule->data)) {
+                $schedule->data = [];
+            }
+            $thissemnr += 0.5;
+            continue;
+        }
+        // Consecutive timetables, merge activities
+        if (!is_null($timetable->data)) {
+            $timetable_categories = \get_object_vars($timetable->data);
+            foreach ($timetable_categories as $key => $value) {
+                if (!isset($schedule->data->{$key})) {
+                    $schedule->data->{$key} = [];
+                }
+                $schedule->data->{$key} = array_merge($schedule->data->{$key}, $value);
+            }
+        }
+        $thissemnr += 0.5;
+    }
+    return $schedule;
+}
+
+/**
+ * Find first semester for a course
+ *
+ * @param string $semesterid
+ * @param integer $termnr
+ * @return array [$semesterid, $termnr]
+ */
+function firstSem(string $semesterid, int $termnr): array
+{
+    if ($termnr == 1) {
+        return [$semesterid,1];
+    }
+
+    $semnumeric = string_to_semnr($semesterid);
+    $semnumeric = $semnumeric - (0.5 * ($termnr - 1));
+    return [semnr_to_string($semnumeric), 1];
+}
+
+/**
+ * Find last semester for a course
+ * This is roughly "the last semester we care about" - we don't know the actual last semester
+ *
+ * @param string $semesterid
+ * @param integer $termnr
+ * @return array [$semesterid, $termn]
+ */
+function lastSem(string $semesterid, int $termnr): array
+{
+    $maxsem = string_to_semnr($_SERVER['maxsem']);
+    $thissem = string_to_semnr($semesterid);
+    if ($thissem >= $maxsem) {
+        // This is the last we know of
+        return [$semesterid, $termnr];
+    }
+    // We go up to maxsem
+    $termsmore = ($maxsem - $thissem) * 2;
+    return [semnr_to_string($maxsem), $termnr + $termsmore];
+}
+
+/**
+ * Verify if a semester is one we care about
+ *
+ * @param string $semesterid
+ * @return bool
+ */
+function verifySem(string $semesterid): bool
+{
+    $maxsem = string_to_semnr($_SERVER['maxsem']);
+    $thissem = string_to_semnr($semesterid);
+    if ($thissem > $maxsem) {
+        return false;
+    }
+    return true;
 }
 
 #endregion utilityfunctions

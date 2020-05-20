@@ -45,7 +45,11 @@ Docker run:
 
 Oneliner for developing:
 ```
-docker run --env-file=.env.test.list -it --rm --name tp-canvas-v2-run --volume "/Users/fuzzy76/repos/tp-canvas-v2/app/:/app/" tp-canvas-v2
+docker run --env-file=.env.dev.list -it --rm --name tp-canvas-v2-run --volume "/Users/hpe001/repos/tp-canvas-v2/app/:/app/" tp-canvas-v2
+```
+
+```
+ssh hpe001@tp-canvas.uit.no -L 3306:appbase.uit.no:3306
 ```
 
 ## Production
