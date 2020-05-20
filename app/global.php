@@ -10,6 +10,7 @@ use Monolog\Handler\ErrorLogHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\FilterHandler;
 use Monolog\ErrorHandler;
+use TpCanvas\ChangeList;
 
 /**
  * Include the composer autoloader - necessary to use composer packages.
@@ -44,3 +45,5 @@ if ($_SERVER['debug'] == 'on') {
     error_reporting(-1); // Enable all error reporting
     $log->notice('Debug mode');
 }
+
+$changelist = new ChangeList($log);
