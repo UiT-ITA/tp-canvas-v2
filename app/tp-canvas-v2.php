@@ -1178,6 +1178,9 @@ function make_sis_course_id(string $courseid, string $semesterid, int $termnr): 
  */
 function make_sis_semester(string $semesterid, int $termnr): string
 {
+    // First convert to first term of course, since that is what Canvas uses
+    list ($semesterid, $termnr) = firstSem($semesterid, $termnr);
+
     $semesteryear = substr($semesterid, 0, 2);
     $sis_semester = "20{$semesteryear}_VÅR_{$termnr}";
     if (strtoupper(substr($semesterid, -1)) == "H") {
@@ -1212,7 +1215,7 @@ function haystack_needles(string $haystack, array $needles): bool
 function semnr_to_string(float $semnr): string
 {
     $sem = 'h';
-    if ($semnr % 2 == 0) {
+    if (($semnr - (int) $semnr) == 0) { // .0 is vår
         $sem = 'v';
     }
     $semyear = intval($semnr);
