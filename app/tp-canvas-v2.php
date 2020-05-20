@@ -69,6 +69,9 @@ switch ($argv[1]) {
     case 'deleteevent':
         cmd_deleteevent((int) $argv[2], (int) $argv[3]);
         break;
+    case 'coursemap':
+        cmd_coursemap($argv[2], $argv[3], (int)$argv[4]);
+        break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
         echo "Usage: {$argv[0]} [command] [options]\n";
@@ -80,6 +83,7 @@ switch ($argv[1]) {
         echo "  Compare prod and test: compareenvironments 2020-01-21T00:00:00\n";
         echo "  Diagnose a course: diagnosecourse MED-3601 123456 20v 1\n";
         echo "  Delete a single Canvas event: deleteevent 123 12345\n";
+        echo "  Output mapping for a course: coursemap MED-3601 20v 2\n";
         break;
 }
 exit;
@@ -562,9 +566,96 @@ function cmd_deleteevent(int $courseid, int $eventid):void
     $log->info("Event was allegedly deleted", ['event' => $dbevent]);
 }
 
+/**
+ * Output course mappings for one course
+ *
+ * @param string $courseid e.g "INF-1100"
+ * @param string $semesterid e.g "18v"
+ * @param int $termnr
+ * @return void
+ */
+function cmd_coursemap(string $courseid, string $semesterid, int $termnr)
+{
+    global $canvas, $tpclient, $log;
+
+    $schedule = new TpSchedule($tpclient, $log, '20v', 'BED-2032', 1);
+    var_dump([
+        'first' => $schedule->firstsemester,
+        'firstt' => $schedule->firstterm,
+        'last' => $schedule->lastsemester,
+        'lastt' => $schedule->lastterm
+        ]);
+    print_r($schedule->shortstruct());
+    $canvascourses = $canvas->accounts[1]->courses->find('BED-2032');
+    //print_r($canvascourses);
+
+    $groupmatch = [];
+    foreach ($schedule->activities['group'] as $index => $activity) {
+        // First attempt, scan for a perfect match
+        foreach ($canvascourses as $canvascourse) {
+            $sis_elements = getSISElements($canvascourse->getSISID());
+            if (
+                $sis_elements['type'] == 'UA'
+                && $sis_elements['course'] == $schedule->sourceobject->courseid
+                && $sis_elements['tpsemester'] == $schedule->firstsemester
+                && $sis_elements['termnr'] == $schedule->firstterm // This is always 1
+                && $sis_elements['actid'] == $activity->sourceobject->actid
+                && $canvascourse->isPublished()
+            ) {
+                $groupmatch[$index] = $canvascourse->getSISID();
+                continue 2; // Next activity
+            }
+        }
+    }
+    var_dump($groupmatch);
+}
+
+/**
+
+1. if type, course id, semester (year+season first semester), termnr (first semester), actnr matches
+
+**/
+
 #endregion commands
 
 #region utilityfunctions
+
+/**
+ * Decode sis course id
+ *
+ * @param string $sis_course_id
+ * @return array
+ */
+function getSISElements(string $sis_course_id): array
+{
+    $elements = \explode('_', $sis_course_id);
+    if ($elements[0] == 'UE') {
+        return [
+            'type' => $elements[0],
+            'institution' => $elements[1],
+            'course' => $elements[2],
+            'version' => $elements[3],
+            'year' => $elements[4],
+            'season' => $elements[5],
+            'termnr' => $elements[6],
+            'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
+        ];
+    }
+    if ($elements[0] == 'UA') {
+        return [
+            'type' => $elements[0],
+            'institution' => $elements[1],
+            'course' => $elements[2],
+            'version' => $elements[3],
+            'year' => $elements[4],
+            'season' => $elements[5],
+            'termnr' => $elements[6],
+            'actid' => $elements[7],
+            'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
+        ];
+    }
+    throw new UnexpectedValueException("Unknown SIS type encountered");
+}
 
 /**
  * Compare tp_event and canvas_event

@@ -56,4 +56,21 @@ class CanvasCourseCollection extends CanvasCollection
     {
         return new CanvasCourse($this->canvasclient, $this->logger, $element);
     }
+
+    /**
+     * Search for canvas course
+     *
+     * @param string $searchstring
+     * @return array Array of instantiated course objects
+     */
+    public function find(string $searchstring): array
+    {
+        // Warning, might cause exceptions
+        $canvas_courses = $this->canvasclient->accounts_courses(1, ['search_term' => $searchstring]);
+        $out = [];
+        foreach ($canvas_courses as $course) {
+            $out[] = new CanvasCourse($this->canvasclient, $this->logger, $course);
+        }
+        return $out;
+    }
 }
