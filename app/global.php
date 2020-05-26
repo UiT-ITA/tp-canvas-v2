@@ -1,9 +1,10 @@
 <?php
+
 /**
  * A file for global operations. Included by all scripts meant to run directly.
  */
 
-declare(strict_types = 1);
+declare(strict_types=1);
 
 use Monolog\Logger;
 use Monolog\Handler\ErrorLogHandler;
@@ -29,8 +30,8 @@ if ($_SERVER['debug'] == 'on') {
 } else {
     // Add sentry for anything not running in debug mode
     if (strlen($_SERVER['sentry_dsn'])) {
-        $client = \Sentry\ClientBuilder::create(['dsn' => $_SERVER['sentry_dsn']])->getClient();
-        $sentryhandler = new \Sentry\Monolog\Handler(new \Sentry\State\Hub($client), Logger::ERROR);
+        $sentryclient = \Sentry\ClientBuilder::create(['dsn' => $_SERVER['sentry_dsn']])->getClient();
+        $sentryhandler = new \Sentry\Monolog\Handler(new \Sentry\State\Hub($sentryclient), Logger::ERROR);
         $log->pushHandler($sentryhandler);
     }
     // Levels info through warning are sent to stdout, error through emergency goes to stderr
