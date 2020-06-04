@@ -611,43 +611,6 @@ function cmd_coursemap(string $courseid, string $semesterid, int $termnr)
 #region utilityfunctions
 
 /**
- * Decode sis course id
- *
- * @param string $sis_course_id
- * @return array
- */
-function getSISElements(string $sis_course_id): array
-{
-    $elements = \explode('_', $sis_course_id);
-    if ($elements[0] == 'UE') {
-        return [
-            'type' => $elements[0],
-            'institution' => $elements[1],
-            'course' => $elements[2],
-            'version' => $elements[3],
-            'year' => $elements[4],
-            'season' => $elements[5],
-            'termnr' => $elements[6],
-            'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
-        ];
-    }
-    if ($elements[0] == 'UA') {
-        return [
-            'type' => $elements[0],
-            'institution' => $elements[1],
-            'course' => $elements[2],
-            'version' => $elements[3],
-            'year' => $elements[4],
-            'season' => $elements[5],
-            'termnr' => $elements[6],
-            'actid' => $elements[7],
-            'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
-        ];
-    }
-    throw new UnexpectedValueException("Unknown SIS type encountered");
-}
-
-/**
  * Compare tp_event and canvas_event
  * Check for changes in title, location, start-date, end-date, staff and recording tag
  *

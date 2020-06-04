@@ -57,4 +57,42 @@ class CanvasCourse extends CanvasObject
         }
         throw new UnexpectedValueException("Unknown Canvas workflow_state");
     }
+
+    /**
+     * Decode sis course id
+     *
+     * @return array
+     */
+    public function getSISElements(): array
+    {
+        $elements = \explode('_', $this->getSISID());
+        if ($elements[0] == 'UE') {
+            return [
+                'type' => $elements[0],
+                'institution' => $elements[1],
+                'course' => $elements[2],
+                'version' => $elements[3],
+                'year' => $elements[4],
+                'season' => $elements[5],
+                'termnr' => $elements[6],
+                'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
+            ];
+        }
+        if ($elements[0] == 'UA') {
+            return [
+                'type' => $elements[0],
+                'institution' => $elements[1],
+                'course' => $elements[2],
+                'version' => $elements[3],
+                'year' => $elements[4],
+                'season' => $elements[5],
+                'termnr' => $elements[6],
+                'actid' => $elements[7],
+                'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
+            ];
+        }
+        throw new UnexpectedValueException("Unknown SIS type encountered");
+    }
+
+
 }
