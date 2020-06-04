@@ -95,4 +95,13 @@ class CanvasCourse extends CanvasObject
     }
 
 
+    public function __toString()
+    {
+        $out = '';
+        $out .= "ID:{$this->sourceobject->id} ";
+        $out .= "SIS:{$this->sourceobject->sis_course_id} ";
+        $out .= "NAME:{$this->sourceobject->name} ";
+        $out .= ($this->isPublished() ? 'PUBLISHED' : 'UNPUBLISHED') . ' ';
+        return $out;
+    }
 }

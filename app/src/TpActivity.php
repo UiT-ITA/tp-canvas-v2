@@ -1,4 +1,5 @@
 <?php declare(strict_types=1);
+
 /**
  * Tp Activity
  * An object-oriented representation of a Tp activity
@@ -6,7 +7,7 @@
 
 namespace TpCanvas;
 
-use \Psr\Log\Loggerinterface;
+use Psr\Log\Loggerinterface;
 
 class TpActivity
 {
@@ -31,5 +32,16 @@ class TpActivity
         $this->logger = $logger;
         $this->schedule = $schedule;
         $this->sourceobject = $activity;
+    }
+
+    public function __toString()
+    {
+        $out = '';
+        $out .= "ID:{$this->sourceobject->id} ";
+        $out .= "ACTID:{$this->sourceobject->actid} ";
+        $out .= "METHOD:{$this->sourceobject->{'teaching-method'}} ";
+        $out .= "PARTY:" . (isset($this->sourceobject->party) ? $this->sourceobject->party : 'none') . " ";
+        $out .= "TITLE:{$this->sourceobject->{'teaching-title'}}";
+        return $out;
     }
 }
