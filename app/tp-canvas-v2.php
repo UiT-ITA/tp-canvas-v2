@@ -34,7 +34,8 @@ $argnums = [
     'canvasdiff' => 1,
     'compareenvironments' => 1,
     'diagnosecourse' => 4,
-    'deleteevent' => 2
+    'deleteevent' => 2,
+    'coursemap' => 3
 ];
 
 if (isset($argnums[$argv[1]])) {
