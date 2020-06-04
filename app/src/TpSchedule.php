@@ -24,7 +24,7 @@ class TpSchedule
     public string $lastsemester;
     public int $lastterm;
 
-    public array $activities;
+    public array $activities = [];
 
     /*
     * Constructor
@@ -130,21 +130,5 @@ class TpSchedule
             $thissemnr += 0.5;
         }
         $this->sourceobject = $schedule; // Save result
-    }
-
-    public function shortstruct()
-    {
-        $schedule = $this->sourceobject;
-        if (isset($schedule->data->group)) {
-            foreach ($schedule->data->group as $ua) {
-                $ua->eventsequences = [];
-            }
-        }
-        if (isset($schedule->data->plenary)) {
-            foreach ($schedule->data->plenary as $ua) {
-                $ua->eventsequences = [];
-            }
-        }
-        return $schedule;
     }
 }
