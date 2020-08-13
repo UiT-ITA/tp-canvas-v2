@@ -72,6 +72,22 @@ abstract class CanvasCollection implements \SeekableIterator, \ArrayAccess
     }
 
     /**
+     * Flush cached data from collection
+     * 
+     * @return void
+     */
+    public function emptyCache(): void
+    {
+        unset($this->elements);
+        $this->elements = [];
+        unset($this->keys);
+        $this->keys = [];
+        unset($this->instances);
+        $this->instances = [];
+        $this->position = 0;
+    }
+
+    /**
      * Return an instanciated object
      *
      * @param integer $id The id to fetch
