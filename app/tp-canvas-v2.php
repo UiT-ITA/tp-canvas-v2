@@ -35,7 +35,8 @@ $argnums = [
     'compareenvironments' => 1,
     'diagnosecourse' => 4,
     'deleteevent' => 2,
-    'coursemap' => 3
+    'coursemap' => 3,
+    'cleancal' => 1
 ];
 
 if (isset($argnums[$argv[1]])) {
@@ -73,6 +74,9 @@ switch ($argv[1]) {
     case 'coursemap':
         cmd_coursemap($argv[2], $argv[3], (int)$argv[4]);
         break;
+    case 'cleancal':
+        cmd_cleancal($argv[2]);
+        break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
         echo "Usage: {$argv[0]} [command] [options]\n";
@@ -85,6 +89,7 @@ switch ($argv[1]) {
         echo "  Diagnose a course: diagnosecourse MED-3601 123456 20v 1\n";
         echo "  Delete a single Canvas event: deleteevent 123 12345\n";
         echo "  Output mapping for a course: coursemap MED-3601 20v 2\n";
+        echo "  Clean automatically created calendar events after a date: cleancal 2020-08-01\n";
         break;
 }
 exit;
@@ -599,6 +604,53 @@ function cmd_coursemap(string $courseid, string $semesterid, int $termnr)
         }
     }
     var_dump($groupmatch);
+}
+
+/**
+ * Clean out calendar events
+ * 
+ * @param string $maxdate The date cutoff for integration data (ie "123098234)
+ */
+function cmd_cleancal(string $maxdate) {
+    global $canvas, $log;
+    $maxdatets = strtotime($maxdate);
+    foreach ($canvas->accounts[1]->courses as $course) {
+        //if (!isset($course->total_students) || $course->total_students == 0) {
+        //    $log->debug("Course (skipping because 0 students)", ['course' => (string) $course]);
+        //    continue;                
+        //}
+        if ((!isset($course->workflow_state)) || $course->workflow_state != 'available') {
+            $log->debug("Course (skipping because not available)", ['course' => var_export($course, TRUE)]);
+            continue;
+        }
+        if (!isset($course->term)) {
+            $log->debug("Course (skipping because no term )", ['course' => var_export($course, TRUE)]);
+            continue;
+        }
+        if ((!$course->term->start_at) || (!$course->term->end_at)) {
+            $log->debug("Course (skipping because open term)", ['course' => var_export($course, TRUE)]);
+            continue;
+        }
+        if (!(strtotime($course->term->end_at) > $maxdatets)) {
+            $log->debug("Course (skipping)", ['course' => (string) $course, 'term' => $course->term]);
+            continue;
+        }
+        $log->debug("Course (processing)", ['course' => (string) $course, 'term' => $course->term]);
+        foreach ($course->calendarevents as $calendarevent) {
+            // Is this an integration generated event?
+            if (isset($calendarevent->description) && strpos($calendarevent->description,'<span id="description-meta" style="display:none">') !== FALSE) {
+                // Is this event set to start after the given max date?
+                if (isset($calendarevent->start_at) && strtotime($calendarevent->start_at) > $maxdatets) {
+                    $log->debug("Event", ['event' => (string) $calendarevent]);
+                } else {
+                    $log->debug("Event (skipping because date in past)", ['event' => (string) $event]);
+                }
+            } else {
+                $log->debug("Event (skipping because manuel event)", ['event' => (string) $event]);
+            }
+        }
+        $course->calendarevents->emptyCache();
+    }
 }
 
 /**
