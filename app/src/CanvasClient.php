@@ -124,9 +124,9 @@ class CanvasClient extends RESTClient
      * @param int $id Course id
      * @return object course
      */
-    public function courses_get(int $id): object
+    public function courses_get(int $id, array $headers = []): object
     {
-        $response = $this->get("courses/{$id}");
+        $response = $this->get("courses/{$id}", ['query' => $headers]);
         return self::responseToNative($response);
     }
 
