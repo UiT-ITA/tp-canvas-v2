@@ -12,6 +12,7 @@ class CanvasCourse extends CanvasObject
 {
 
     public CanvasCalendareventCollection $calendarevents; // Calendarevents for this course
+    public CanvasSectionCollection $sections; // Sections for this course
 
     /*
     * Constructor
@@ -24,6 +25,7 @@ class CanvasCourse extends CanvasObject
     {
         parent::__construct($canvasclient, $logger, $sourceobject);
         $this->calendarevents = new CanvasCalendareventCollection($canvasclient, $logger, $this);
+        $this->sections = new CanvasSectionCollection($canvasclient, $logger, $this);
     }
 
     public function save(): void

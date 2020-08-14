@@ -130,6 +130,12 @@ class CanvasClient extends RESTClient
         return self::responseToNative($response);
     }
 
+    public function courses_sections(int $id): array
+    {
+        $response = $this->get("courses/{$id}/sections", ['query' => ['include[]' => 'total_students']]);
+        return self::responseToNative($response);
+    }
+
     /**
      * Compare two events. Returns true if equal (for some definition of equal)
      * @param object $event1
