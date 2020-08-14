@@ -66,6 +66,17 @@ abstract class CanvasObject
     }
 
     /**
+     * Magical isset
+     *
+     * @param string $name property
+     * @return boolean is the property set
+     */
+    public function __isset(string $name): bool
+    {
+        return isset($this->sourceobject->{$name});
+    }
+
+    /**
      * Magical setter
      *
      * @param string $name Property name
