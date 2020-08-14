@@ -32,7 +32,7 @@ class CanvasCourseCollection extends CanvasCollection
      */
     public function getList(): array
     {
-        return $this->canvasclient->accounts_courses($this->account->id);
+        return $this->canvasclient->accounts_courses($this->account->id, ['include[]' => 'term']);
     }
 
     /**
@@ -43,7 +43,7 @@ class CanvasCourseCollection extends CanvasCollection
      */
     public function getSingle(int $courseid): ?object
     {
-        return $this->canvasclient->courses_get($courseid);
+        return $this->canvasclient->courses_get($courseid, ['include[]' => 'term']);
     }
 
     /**
@@ -66,7 +66,7 @@ class CanvasCourseCollection extends CanvasCollection
     public function find(string $searchstring): array
     {
         // Warning, might cause exceptions
-        $canvas_courses = $this->canvasclient->accounts_courses(1, ['search_term' => $searchstring]);
+        $canvas_courses = $this->canvasclient->accounts_courses(1, ['search_term' => $searchstring, 'include[]' => 'term']);
         $out = [];
         foreach ($canvas_courses as $course) {
             $out[] = new CanvasCourse($this->canvasclient, $this->logger, $course);
