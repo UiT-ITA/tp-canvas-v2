@@ -1,4 +1,5 @@
 <?php declare(strict_types=1);
+
 /**
  * Canvas Course
  * An object-oriented representation of a Canvas course
@@ -6,7 +7,7 @@
 
 namespace TpCanvas;
 
-use \Psr\Log\Loggerinterface;
+use Psr\Log\Loggerinterface;
 
 class CanvasCourse extends CanvasObject
 {
@@ -43,17 +44,22 @@ class CanvasCourse extends CanvasObject
         return $this->sourceobject->sis_course_id;
     }
 
+    /**
+     * Is the course published?
+     *
+     * @return boolean
+     */
     public function isPublished(): bool
     {
         if (
-            $this->sourceobject->workflow_state == 'available'
-            || $this->sourceobject->workflow_state == 'completed'
+            $this->workflow_state == 'available'
+            || $this->workflow_state == 'completed'
         ) {
             return true;
         }
         if (
-            $this->sourceobject->workflow_state == 'unpublished'
-            || $this->sourceobject->workflow_state == 'deleted'
+            $this->workflow_state == 'unpublished'
+            || $this->workflow_state == 'deleted'
         ) {
             return false;
         }
