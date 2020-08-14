@@ -563,38 +563,62 @@ function cmd_deleteevent(int $courseid, int $eventid):void
  * @param string $courseid e.g "INF-1100"
  * @param string $semesterid e.g "18v"
  * @param int $termnr
+ * 
+ * Good test settings:
+ * MED-3601 20v 2
+ * BED-2032 20v 1
+ * Other: FSK-1121 MED-1501 SPL-1002
  * @return void
  */
 function cmd_coursemap(string $courseid, string $semesterid, int $termnr)
 {
     global $canvas, $tpclient, $log;
 
-    $schedule = new TpSchedule($tpclient, $log, '20v', 'BED-2032', 1);
-    var_dump([
-        'first' => $schedule->firstsemester,
-        'firstt' => $schedule->firstterm,
-        'last' => $schedule->lastsemester,
-        'lastt' => $schedule->lastterm
-        ]);
-    print_r($schedule->shortstruct());
-    $canvascourses = $canvas->accounts[1]->courses->find('BED-2032');
-    //print_r($canvascourses);
+    // Fetch data from TP
+
+    $schedule = new TpSchedule($tpclient, $log, $semesterid, $courseid, $termnr);
+
+    echo "Fra TP:\n";
+    foreach ($schedule->activities as $category => $content) {
+        foreach ($content as $activity) {
+            echo "{$category} {$activity}\n";
+        }
+    }
+
+    // Fetch data from Canvas
+
+    $canvasyear = "20" . substr($schedule->firstsemester, 0, 2);
+    $canvasseason = (substr($schedule->firstsemester, 2, 1) == 'v' ? 'VÅR' : 'HØST');
+    $searchterm = "_{$_SERVER['tp_institution']}_{$courseid}_1_{$canvasyear}_{$canvasseason}_1";
+    $canvascourses = $canvas->accounts[1]->courses->find($searchterm);
+
+    echo "Fra Canvas:\n";
+    foreach ($canvascourses as $course) {
+        echo "{$course}\n";
+        foreach ($course->sections as $section) {
+            echo "  Section: {$section}\n";
+        }
+    }
+
+    // Start matching
 
     $groupmatch = [];
-    foreach ($schedule->activities['group'] as $index => $activity) {
-        // First attempt, scan for a perfect match
-        foreach ($canvascourses as $canvascourse) {
-            $sis_elements = getSISElements($canvascourse->getSISID());
-            if (
-                $sis_elements['type'] == 'UA'
-                && $sis_elements['course'] == $schedule->sourceobject->courseid
-                && $sis_elements['tpsemester'] == $schedule->firstsemester
-                && $sis_elements['termnr'] == $schedule->firstterm // This is always 1
-                && $sis_elements['actid'] == $activity->sourceobject->actid
-                && $canvascourse->isPublished()
-            ) {
-                $groupmatch[$index] = $canvascourse->getSISID();
-                continue 2; // Next activity
+    if (isset($schedule->activities['group'])) {
+        foreach ($schedule->activities['group'] as $index => $activity) {
+            // First attempt, scan for a perfect match
+            foreach ($canvascourses as $canvascourse) {
+                $sis_elements = $canvascourse->getSISElements();
+                if (
+                    $sis_elements['type'] == 'UA'
+                    && $sis_elements['course'] == $schedule->sourceobject->courseid
+                    && $sis_elements['tpsemester'] == $schedule->firstsemester
+                    && $sis_elements['termnr'] == $schedule->firstterm // This is always 1
+                    && $sis_elements['actid'] == $activity->sourceobject->actid
+                    && $canvascourse->isPublished()
+                ) {
+                    $groupmatch[$index] = $canvascourse->getSISID();
+                    continue 2; // Next activity
+                }
             }
         }
     }
