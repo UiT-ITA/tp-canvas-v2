@@ -87,4 +87,14 @@ abstract class CanvasObject
     {
         $this->sourceobject->{$name} = $value;
     }
+
+    /**
+     * Magical debuginfo
+     *
+     * @return array properties
+     */
+    public function __debugInfo()
+    {
+        return (array) $this->sourceobject;
+    }
 }
