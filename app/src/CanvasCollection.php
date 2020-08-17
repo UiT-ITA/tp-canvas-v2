@@ -8,7 +8,7 @@ namespace TpCanvas;
 
 use \Psr\Log\Loggerinterface;
 
-abstract class CanvasCollection implements \SeekableIterator, \ArrayAccess
+abstract class CanvasCollection implements \SeekableIterator, \ArrayAccess, \Countable
 {
     protected array $elements = []; // Elements of stdClass returned from REST
     protected array $keys = []; // List of keys used - helps when seeking
@@ -242,4 +242,21 @@ abstract class CanvasCollection implements \SeekableIterator, \ArrayAccess
     }
 
     #endregion ArrayAccess interface
+
+    #region Countable interface
+
+    /**
+     * Item count wrapper
+     *
+     * This is a really expensive default implementation. If you can override this, please do.
+     *
+     * @return integer number of elements
+     */
+    public function count(): int
+    {
+        $this->fillElements(); // Expensive, entire list needed
+        return count($this->keys);
+    }
+
+    #endregion Countable interface
 }

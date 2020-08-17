@@ -638,7 +638,10 @@ function cmd_coursemap(string $courseid, string $semesterid, int $termnr)
 function cmd_cleancal(string $maxdate) {
     global $canvas, $log;
     $maxdatets = strtotime($maxdate);
+    $coursecount = 0;
     foreach ($canvas->accounts[1]->courses as $course) {
+        $coursecount++;
+        $log->debug("Course {$coursecount} of ". count($canvas->accounts[1]->courses));
         if ((!isset($course->workflow_state)) || ($course->workflow_state != 'available')) {
             //$log->debug("Course skipped (not available)", ['course' => $course]);
             continue;
@@ -654,12 +657,12 @@ function cmd_cleancal(string $maxdate) {
         foreach ($course->calendarevents as $calendarevent) {
             // Is this an integration generated event?
             if (!isset($calendarevent->description) || strpos($calendarevent->description, '<span id="description-meta" style="display:') === false) {
-                $log->debug("Event skipped (manual event)", ['event' => $calendarevent]);
+//                $log->debug("Event skipped (manual event)", ['event' => $calendarevent]);
                 continue;
             }
             // Is this event before the given max date?
             if (isset($calendarevent->start_at) && strtotime($calendarevent->start_at) < $maxdatets) {
-                $log->debug("Event skipped (date in past)", ['event' => $calendarevent, 'term' => $course->term->name]);
+//                $log->debug("Event skipped (date in past)", ['event' => $calendarevent, 'term' => $course->term->name]);
                 continue;
             }
             $log->debug("Event processed", ['course' => $course, 'event' => $calendarevent]);
