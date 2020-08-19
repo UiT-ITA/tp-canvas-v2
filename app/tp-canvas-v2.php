@@ -639,33 +639,39 @@ function cmd_cleancal(string $maxdate) {
     global $canvas, $log;
     $maxdatets = strtotime($maxdate);
     $coursecount = 0;
+    $coursescount = count($canvas->accounts[1]->courses);
     foreach ($canvas->accounts[1]->courses as $course) {
         $coursecount++;
-        $log->debug("Course {$coursecount} of ". count($canvas->accounts[1]->courses));
+        $coursedescriptor = "{$course} ({$coursecount}/{$coursescount})";
         if ((!isset($course->workflow_state)) || ($course->workflow_state != 'available')) {
-            //$log->debug("Course skipped (not available)", ['course' => $course]);
+            //$log->debug("Course skipped (not available)", ['course' => $coursedescriptor]);
             continue;
         }
         if ($course->term->id == 3) {
-            //$log->debug("Course skipped (default term)", ['course' => $course, 'term' => $course->term]);
+            //$log->debug("Course skipped (default term)", ['course' => $coursedescriptor]);
             continue;
         }
         if ($course->term->end_at && !(strtotime($course->term->end_at) > $maxdatets)) {
-            //$log->debug("Course skipped (term ended)", ['course' => $course, 'term' => $course->term]);
+            //$log->debug("Course skipped (term ended)", ['course' => $coursedescriptor]);
             continue;
         }
+        $log->debug("Course processing", ['course' => $coursedescriptor]);
         foreach ($course->calendarevents as $calendarevent) {
             // Is this an integration generated event?
             if (!isset($calendarevent->description) || strpos($calendarevent->description, '<span id="description-meta" style="display:') === false) {
 //                $log->debug("Event skipped (manual event)", ['event' => $calendarevent]);
                 continue;
             }
+            // Does the event have a date?
+            if (!isset($calendarevent->start_at)) {
+//                $log->debug("Event skipped (no date)", ['event' => $calendarevent, 'term' => $course->term->name]);
+            }
             // Is this event before the given max date?
-            if (isset($calendarevent->start_at) && strtotime($calendarevent->start_at) < $maxdatets) {
+            if (strtotime($calendarevent->start_at) < $maxdatets) {
 //                $log->debug("Event skipped (date in past)", ['event' => $calendarevent, 'term' => $course->term->name]);
                 continue;
             }
-            $log->debug("Event processed", ['course' => $course, 'event' => $calendarevent]);
+            $log->debug(" Event processed", ['event' => $calendarevent]);
         }
         $course->calendarevents->emptyCache();
     }
