@@ -85,6 +85,7 @@ abstract class CanvasCollection implements \SeekableIterator, \ArrayAccess, \Cou
         unset($this->instances);
         $this->instances = [];
         $this->position = 0;
+        \gc_collect_cycles();
     }
 
     /**
