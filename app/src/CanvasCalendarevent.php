@@ -79,7 +79,7 @@ class CanvasCalendarevent extends CanvasObject
      */
     public function getShorttime(): string
     {
-        if (!\is_string($this->start_at)) {
+        if ( (!isset($this->start_at)) || (!\is_string($this->start_at)) ) {
             return "na";
         }
         $out =  date("j.n.y G:i", \strtotime($this->start_at));
