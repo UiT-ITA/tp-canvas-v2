@@ -647,6 +647,10 @@ function cmd_cleancal(string $maxdate) {
             //$log->debug("Course skipped (not available)", ['course' => $coursedescriptor]);
             continue;
         }
+        if (!isset($course->sis_course_id) || !$course->sis_course_id) {
+            //$log->debug("Course skipped (not from SIS)", ['course' => $coursedescriptor]);
+            continue;
+        }
         if ($course->term->id == 3) {
             //$log->debug("Course skipped (default term)", ['course' => $coursedescriptor]);
             continue;
@@ -655,23 +659,30 @@ function cmd_cleancal(string $maxdate) {
             //$log->debug("Course skipped (term ended)", ['course' => $coursedescriptor]);
             continue;
         }
+        if (isset($course->blueprint) && $course->blueprint) {
+            //$log->debug("Course skipped (blueprint)", ['course' => $coursedescriptor]);
+            continue;
+        }
         $log->debug("Course processing", ['course' => $coursedescriptor]);
-        foreach ($course->calendarevents as $calendarevent) {
+        foreach ($course->calendarevents as $calendareventid => $calendarevent) {
             // Is this an integration generated event?
             if (!isset($calendarevent->description) || strpos($calendarevent->description, '<span id="description-meta" style="display:') === false) {
 //                $log->debug("Event skipped (manual event)", ['event' => $calendarevent]);
                 continue;
             }
             // Does the event have a date?
-            if (!isset($calendarevent->start_at)) {
+            if (!isset($calendarevent->start_at) || is_null($calendarevent->start_at)) {
 //                $log->debug("Event skipped (no date)", ['event' => $calendarevent, 'term' => $course->term->name]);
+                continue;
             }
             // Is this event before the given max date?
             if (strtotime($calendarevent->start_at) < $maxdatets) {
 //                $log->debug("Event skipped (date in past)", ['event' => $calendarevent, 'term' => $course->term->name]);
                 continue;
             }
-            $log->debug(" Event processed", ['event' => $calendarevent]);
+
+            $log->info(" Event deletion", ['event' => $calendarevent]);
+            unset($course->calendarevents[$calendareventid]);
         }
         $course->calendarevents->emptyCache();
     }
