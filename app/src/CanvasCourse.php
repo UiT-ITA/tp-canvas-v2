@@ -39,7 +39,7 @@ class CanvasCourse extends CanvasObject
         throw new ErrorException("Not implemented");
     }
 
-    public function getSISID(): string
+    public function getSISID(): ?string
     {
         return $this->sourceobject->sis_course_id;
     }
@@ -63,7 +63,7 @@ class CanvasCourse extends CanvasObject
         ) {
             return false;
         }
-        throw new UnexpectedValueException("Unknown Canvas workflow_state");
+        throw new \UnexpectedValueException("Unknown Canvas workflow_state");
     }
 
     /**
@@ -73,6 +73,10 @@ class CanvasCourse extends CanvasObject
      */
     public function getSISElements(): array
     {
+        $elements = $this->getSISID();
+        if (!is_string($elements)) {
+            return []; // Is this what we want for blank SIS IDs?
+        }
         $elements = \explode('_', $this->getSISID());
         if ($elements[0] == 'UE') {
             return [
@@ -99,7 +103,22 @@ class CanvasCourse extends CanvasObject
                 'tpsemester' => \substr($elements[4], 2, 2) . \strtolower(\substr($elements[5], 0, 1))
             ];
         }
-        throw new UnexpectedValueException("Unknown SIS type encountered");
+        throw new \UnexpectedValueException("Unknown SIS type encountered");
+    }
+
+    public function publish(): void
+    {
+        try {
+            $this->canvasclient->course_put($this->id, (object) ['event' => 'offer']);
+        } catch (ClientException $e) {
+            if ($e->getResponse()->getStatusCode() == 404) {
+                // Not found in Canvas, let's just take credit.
+                $this->logger->warning(static::class . " missing in Canvas, assume deletion", ['id' => $this->id]);
+                return;
+            }
+            throw $e;
+        }
+        $this->logger->info(static::class . " published", ['id' => $this->id]);
     }
 
 

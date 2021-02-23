@@ -130,6 +130,22 @@ class CanvasClient extends RESTClient
         return self::responseToNative($response);
     }
 
+    /**
+     * Update course object
+     * @param int $id The course id to update
+     * @param object $coursedata The data to update with
+     * @return object course
+     * @todo A good save returns 201 - should the rest be checked?
+     */
+    public function course_put(int $id, object $coursedata)
+    {
+        $cdata = new \stdClass;
+        $cdata->course = $coursedata;
+        $response = $this->put("courses/{$id}.json", ['json' => $cdata]);
+        return self::responseToNative($response);
+    }
+
+
     public function courses_sections(int $id): array
     {
         $response = $this->get("courses/{$id}/sections", ['query' => ['include[]' => 'total_students']]);
