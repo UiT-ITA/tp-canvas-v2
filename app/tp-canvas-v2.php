@@ -36,7 +36,8 @@ $argnums = [
     'diagnosecourse' => 4,
     'deleteevent' => 2,
     'coursemap' => 3,
-    'cleancal' => 1
+    'cleancal' => 1,
+    'publishsemester' => 1
 ];
 
 if (isset($argnums[$argv[1]])) {
@@ -77,6 +78,9 @@ switch ($argv[1]) {
     case 'cleancal':
         cmd_cleancal($argv[2]);
         break;
+    case 'publishsemester':
+        cmd_publishsemester($argv[2]);
+        break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
         echo "Usage: {$argv[0]} [command] [options]\n";
@@ -90,6 +94,7 @@ switch ($argv[1]) {
         echo "  Delete a single Canvas event: deleteevent 123 12345\n";
         echo "  Output mapping for a course: coursemap MED-3601 20v 2\n";
         echo "  Clean automatically created calendar events after a date: cleancal 2020-08-01\n";
+        echo "  Publish UA for a semester: publishsemester 20v\n";
         break;
 }
 exit;
@@ -693,6 +698,27 @@ function cmd_cleancal(string $maxdate) {
 1. if type, course id, semester (year+season first semester), termnr (first semester), actnr matches
 
 **/
+
+function cmd_publishsemester(string $semester)
+{
+    global $canvas, $log;
+    foreach ($canvas->accounts[1]->courses as $course) {
+        if (!$course->isPublished()) {
+            try {
+                $info = $course->getSISElements();
+                if (isset($info['tpsemester']) && $info['tpsemester'] == $semester) {
+                    if (isset($info['type']) && $info['type'] == 'UE') {
+                        echo "$course\n";
+                        $course->publish();
+                    }
+                }
+            } catch (\UnexpectedValueException $e) {
+                //$log->warning("Wrong SIS format", ["course" => $course]);
+            }
+        }
+    }
+}
+
 
 #endregion commands
 
