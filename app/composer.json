@@ -10,8 +10,8 @@
         "monolog/monolog": "^2.0",
         "paquettg/php-html-parser": "^2.2",
         "guzzlehttp/guzzle": "^6.5",
-        "php": "^7.4",
+        "php": ">=7.4",
         "psy/psysh": "@stable",
-        "sentry/sdk": "^2.1"
+        "sentry/sdk": "~3.0"
     }
 }
