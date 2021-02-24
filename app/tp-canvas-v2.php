@@ -37,7 +37,8 @@ $argnums = [
     'deleteevent' => 2,
     'coursemap' => 3,
     'cleancal' => 1,
-    'publishsemester' => 1
+    'publishsemester' => 1,
+    'debugreport' => 1
 ];
 
 if (isset($argnums[$argv[1]])) {
@@ -80,6 +81,9 @@ switch ($argv[1]) {
         break;
     case 'publishsemester':
         cmd_publishsemester($argv[2]);
+        break;
+    case 'debugreport':
+        cmd_debugreport($argv[2]);
         break;
     default:
         echo "Command-line utility to sync timetables from TP to Canvas.\n";
@@ -717,6 +721,58 @@ function cmd_publishsemester(string $semester)
             }
         }
     }
+}
+
+function cmd_debugreport(string $semester)
+{
+    global $tpclient, $log;
+    $courses = $tpclient->courses($semester);
+    foreach ([1,2,3,4] as $termnr) {
+        foreach ($courses->data as $course) {
+            $schedule = new TpSchedule($tpclient, $log, $semester, $course->id, $termnr);
+            foreach ($schedule->activities as $activitytype) {
+                foreach ($activitytype as $activity) {
+                    foreach ($activity->sourceobject->eventsequences as $eventsequence) {
+                        $rooms = [];
+                        $mediasite = false;
+                        foreach ($eventsequence->events as $event) {
+                            // Set mediasite flag if any tag contains the phrase
+                            if (isset($event->tags)) {
+                                foreach ($event->tags as $tag) {
+                                    if (strpos($tag, 'Mediasite') !== false) {
+                                        $mediasite = true;
+                                    }
+                                }
+                            }
+                            // No rooms, skip room iteration
+                            if (!isset($event->room)) {
+                                if (!isset($rooms['(ingen)'])) {
+                                    $rooms['(ingen)'] = 0;
+                                }
+                                $rooms['(ingen)']++;
+                                continue;
+                            }
+                            // Build array of rooms
+                            $erooms = [];
+                            foreach ($event->room as $room) {
+                                $erooms[] = $room->id;
+                            }
+                            // Update counter for this room combination
+                            $roommatch = join(" ", $erooms);
+                            if (!isset($rooms[$roommatch])) {
+                                $rooms[$roommatch] = 0;
+                            }
+                            $rooms[$roommatch]++;
+                        }
+                        if ($mediasite && count($rooms) > 1) {
+                            $log->debug("Problemkandidat", ['course' => $course, 'termnr' => $termnr, 'activity' => $activity, 'rooms' => $rooms]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 
