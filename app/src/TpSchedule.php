@@ -7,6 +7,7 @@
 namespace TpCanvas;
 
 use \Psr\Log\Loggerinterface;
+use stdClass;
 
 class TpSchedule
 {
@@ -57,7 +58,7 @@ class TpSchedule
             $this->firstsemester = semnr_to_string($semnumeric);
             $this->firstterm = 1;
         }
-    
+
         // Calculate last semester
         $maxsem = string_to_semnr($_SERVER['maxsem']);
         $thissem = string_to_semnr($semester);
@@ -112,7 +113,7 @@ class TpSchedule
                 // First timetable, grab as is
                 $schedule = $timetable;
                 if (is_null($schedule->data)) {
-                    $schedule->data = [];
+                    $schedule->data = new stdClass();
                 }
                 $thissemnr += 0.5;
                 continue;
