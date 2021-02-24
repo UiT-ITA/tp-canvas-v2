@@ -24,7 +24,7 @@ class RESTClient extends GuzzleHTTP\Client
             '\\TpCanvas\RESTClient::retryDelay'
         );
         $this->handlerStack->push($retrymiddleware);
-        $this->handlerStack->push(GuzzleHttp\Middleware::httpErrors());
+        //$this->handlerStack->push(GuzzleHttp\Middleware::httpErrors());
         $defaultopts = [
             'debug' => ($_SERVER['curldebug'] == "on" ? true : false),
             'handler' => $this->handlerStack,
@@ -49,6 +49,9 @@ class RESTClient extends GuzzleHTTP\Client
         GuzzleHttp\Psr7\Response $response = null,
         \RuntimeException $exception = null
     ) {
+        //if ($retries) {
+        //    echo "Retry $retries\n";
+        //}
         // Limit the number of retries to 5
         if ($retries >= 5) {
             return false;
